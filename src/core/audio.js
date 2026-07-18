@@ -11,9 +11,16 @@ const SAMPLE_FILES = {
   driftLoop: 'drift-loop.mp3',
   explosion: 'explosion.mp3',
   powerup: 'powerup.mp3',
-  itemThrow: 'item-throw.mp3',
+  rocketFire: 'rocket-fire.mp3',
+  mineDrop: 'mine-drop.mp3',
+  shieldBubble: 'shield-bubble.mp3',
+  lightning: 'lightning.mp3',
   countdownDing: 'countdown-ding.mp3',
   goDing: 'go-ding.mp3',
+  voice3: 'voice-3.mp3',
+  voice2: 'voice-2.mp3',
+  voice1: 'voice-1.mp3',
+  voiceGo: 'voice-go.mp3',
 };
 
 class AudioManager {
@@ -166,6 +173,13 @@ class AudioManager {
       this._tone({ freq: 440, dur: 0.16, type: 'square', gain: 0.2 });
     }
   }
+  /** Spoken "3"/"2"/"1"/"go" — meant to overlap the ding from countBeep(),
+   *  not replace it. Web Audio mixes concurrent sources automatically, so
+   *  calling both in the same tick is all that's needed for them to layer. */
+  countVoice(n) {
+    const key = n === 'go' ? 'voiceGo' : { 3: 'voice3', 2: 'voice2', 1: 'voice1' }[n];
+    if (key) this._playBuffer(key, { gain: 0.85 });
+  }
   boost(pitch = 1) {
     if (this._playBuffer('powerup', { gain: 0.5, rate: 0.92 + 0.16 * pitch })) return;
     this._noise({ dur: 0.55, gain: 0.3, filter: 900 * pitch, endFilter: 5200 * pitch, type: 'bandpass', q: 1.2 });
@@ -184,12 +198,12 @@ class AudioManager {
   itemLand() { this._tone({ freq: 520, dur: 0.12, type: 'triangle', gain: 0.18 }); }
   rouletteTick() { this._tone({ freq: 900, dur: 0.03, type: 'square', gain: 0.06 }); }
   rocketFire() {
-    if (this._playBuffer('itemThrow', { gain: 0.5 })) return;
+    if (this._playBuffer('rocketFire', { gain: 0.5 })) return;
     this._noise({ dur: 0.7, gain: 0.3, filter: 2600, endFilter: 300, q: 0.6 });
     this._tone({ freq: 300, endFreq: 90, dur: 0.6, type: 'sawtooth', gain: 0.18 });
   }
   mineDrop() {
-    if (this._playBuffer('itemThrow', { gain: 0.42, rate: 0.82 })) return;
+    if (this._playBuffer('mineDrop', { gain: 0.5 })) return;
     this._tone({ freq: 260, endFreq: 90, dur: 0.22, type: 'square', gain: 0.16 });
     this._noise({ dur: 0.18, gain: 0.14, filter: 600, endFilter: 200 });
   }
@@ -215,10 +229,14 @@ class AudioManager {
     seq.forEach((f, i) => this._tone({ freq: f, dur: 0.11, type: 'square', gain: 0.11, when: i * 0.09 }));
   }
   lightning() {
+    if (this._playBuffer('lightning', { gain: 0.55 })) return;
     this._noise({ dur: 0.65, gain: 0.4, filter: 6000, endFilter: 500, type: 'highpass', q: 0.5 });
     this._tone({ freq: 1800, endFreq: 90, dur: 0.6, type: 'sawtooth', gain: 0.2 });
   }
-  shieldUp() { this._tone({ freq: 330, endFreq: 830, dur: 0.3, type: 'sine', gain: 0.2 }); }
+  shieldUp() {
+    if (this._playBuffer('shieldBubble', { gain: 0.55 })) return;
+    this._tone({ freq: 330, endFreq: 830, dur: 0.3, type: 'sine', gain: 0.2 });
+  }
   shieldBlock() {
     this._tone({ freq: 830, endFreq: 330, dur: 0.25, type: 'sine', gain: 0.24 });
     this._noise({ dur: 0.2, gain: 0.16, filter: 3000, type: 'highpass' });

@@ -211,12 +211,14 @@ export class Race {
         if (count > 0) {
           this.hud.showCount(String(count));
           audio.countBeep(false);
+          audio.countVoice(count);
         }
       }
       if (this.countdownT <= 0) {
         this.state = 'racing';
         this.hud.showCount('GO!');
         audio.countBeep(true);
+        audio.countVoice('go');
         // launch boosts
         if (this.player.control.throttle > 0 || this.player.controlHeld) {
           this.player.applyBoost(1.38, 1.0, 'launch');
