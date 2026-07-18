@@ -343,7 +343,7 @@ class AudioManager {
 
     const levelGain = this.ctx.createGain();
     levelGain.gain.setValueAtTime(0, t0);
-    levelGain.gain.linearRampToValueAtTime(0.12, t0 + 0.4);
+    levelGain.gain.linearRampToValueAtTime(0.045, t0 + 0.4);
     levelGain.connect(this.sfxBus);
 
     // synthesized variant — deep low-RPM growl, not a high-pitched toy whine
@@ -416,15 +416,21 @@ class AudioManager {
     if (!this.engine || this.engine.muted) return;
     const t = this.ctx.currentTime;
 
-    const oscFreq = 34 + ratio * 60 + (boosting ? 14 : 0);
+    const oscFreq = 55 + ratio * 80 + (boosting ? 15 : 0);
     this.engine.oscA.frequency.setTargetAtTime(oscFreq, t, 0.07);
     this.engine.oscB.frequency.setTargetAtTime(oscFreq * 0.501, t, 0.07);
-    this.engine.filt.frequency.setTargetAtTime(220 + ratio * 950, t, 0.09);
+    this.engine.filt.frequency.setTargetAtTime(260 + ratio * 900, t, 0.09);
     if (this.engine.sampleSrc) {
-      const rate = 0.55 + ratio * 0.85 + (boosting ? 0.18 : 0);
+      // Keep this close to the recorded clip's natural pitch — the old
+      // 0.55x-1.58x range pitch-shifted it enough to stop sounding like the
+      // actual recording (and read as a toy/RC-car whine at the top end).
+      // Speed is conveyed mostly through level below, pitch only subtly.
+      const rate = 0.82 + ratio * 0.28 + (boosting ? 0.06 : 0);
       this.engine.sampleSrc.playbackRate.setTargetAtTime(rate, t, 0.08);
     }
-    const level = 0.12 + ratio * 0.32 + (boosting ? 0.08 : 0);
+    // Noticeably quieter than one-shot SFX (which peak around 0.5-0.55) since
+    // this drones continuously rather than firing as brief transients.
+    const level = 0.045 + ratio * 0.1 + (boosting ? 0.025 : 0);
     this.engine.levelGain.gain.setTargetAtTime(level, t, 0.08);
 
     if (this.skid.sample) {

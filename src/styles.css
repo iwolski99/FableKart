@@ -261,7 +261,7 @@ html, body {
 /* ---------------- settings ---------------- */
 .settings-panel {
   background: var(--panel); border: 3px solid var(--panel-edge); border-radius: 22px;
-  padding: 30px 40px; min-width: min(440px, 92vw);
+  padding: 30px 40px; min-width: min(500px, 92vw);
   box-shadow: 0 24px 60px rgba(0,0,0,0.55);
   display: flex; flex-direction: column; gap: 22px;
 }
@@ -300,8 +300,9 @@ html, body {
 }
 .seg-btn {
   flex: 1; pointer-events: auto; cursor: pointer;
-  font-family: var(--ui-font); font-weight: 700; font-size: 13px; letter-spacing: 0.5px;
-  color: #cfd3ff; background: transparent; border: 0; border-radius: 7px; padding: 8px 6px;
+  font-family: var(--ui-font); font-weight: 700; font-size: 12px; letter-spacing: 0.3px;
+  color: #cfd3ff; background: transparent; border: 0; border-radius: 7px; padding: 8px 4px;
+  white-space: nowrap;
   transition: background 0.15s, color 0.15s;
 }
 .seg-btn:hover { color: #fff; }

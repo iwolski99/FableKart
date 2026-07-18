@@ -72,42 +72,65 @@ export class AIController {
     }
     if (!target) {
       const ahead = t.sampleAt(k.s + lookahead);
-      // lane offset: personal bias + slow wander + apex cut toward the inside
-      const wander = Math.sin(time * 0.35 + this.wobblePhase) * 0.35;
+      // lane offset: personal bias + wander + apex cut toward the inside.
+      // Both are skill-scaled: low skill wanders more and cuts apexes less
+      // precisely (prone to running wide or clipping the wall), high skill
+      // holds a tight, accurate line.
+      const wanderAmp = 0.15 + (1 - this.skill) * 0.45;
+      const wander = Math.sin(time * 0.35 + this.wobblePhase) * wanderAmp;
       const curve = t.maxCurvAhead(k.s, lookahead + 12);
-      const apex = clamp(curve * 260, -1, 1); // +curv = left turn → inside is left
-      let lane = clamp(this.laneBias * 0.4 + wander + apex * 0.8, -1, 1);
+      const apexStrength = 0.55 + this.skill * 0.35;
+      const apex = clamp(curve * 260, -1, 1) * apexStrength; // +curv = left turn → inside is left
+      let lane = clamp(this.laneBias * 0.4 + wander + apex, -1, 1);
       target = ahead.pos.clone().addScaledVector(ahead.left, lane * (t.halfWidth - 2.4));
     }
 
     // ----- steering -----
     const desired = Math.atan2(target.x - k.pos.x, target.z - k.pos.z);
     const diff = angleDiff(k.heading, desired);
-    const noise = (1 - this.skill) * Math.sin(time * 2.2 + this.wobblePhase) * 0.08;
-    c.steer = clamp(diff * 2.4 + noise, -1, 1);
+    // Keep the gain close to the old flat 2.4 at the top end — pushing it
+    // much higher saturates c.steer (clamped to ±1) for even small heading
+    // errors, which (before this fix) also over-triggered the drift
+    // heuristic below since that used to read c.steer instead of diff.
+    const steerGain = 1.6 + this.skill * 1.0;
+    const noise = (1 - this.skill) * 0.22 * Math.sin(time * 2.2 + this.wobblePhase);
+    c.steer = clamp(diff * steerGain + noise, -1, 1);
 
     // ----- throttle / brake for corners -----
     c.throttle = 1;
     c.brake = false;
     const curvAhead = Math.abs(t.maxCurvAhead(k.s, Math.abs(k.speed) * 0.9 + 8));
-    if (curvAhead > 1e-4) {
-      const latGrip = 21 + this.skill * 14;
+    if (curvAhead > 0.0035) { // ignore near-straight track — don't lift for nothing
+      const latGrip = 15 + this.skill * 21; // loose and cautious .. glued and fast
       const cornerSpeed = Math.sqrt(latGrip / curvAhead);
-      if (k.speed > cornerSpeed * 1.18) { c.brake = true; c.throttle = 0; }
-      else if (k.speed > cornerSpeed * 1.04) c.throttle = 0.0;
+      const over = k.speed / Math.max(cornerSpeed, 1);
+      const brakeAt = 1.42 - this.skill * 0.18; // low skill reacts later & harder
+      if (over > brakeAt) { c.brake = true; c.throttle = 0; }
+      else if (over > 1.0) {
+        // proportional lift instead of an on/off stutter, so speed bleeds
+        // off smoothly and they can actually settle into a good corner speed
+        c.throttle = clamp(1 - (over - 1) * 2.6, 0, 1);
+      }
     }
-    if (Math.abs(diff) > 1.15) { c.throttle = 0; c.brake = k.speed > 12; }
+    if (Math.abs(diff) > 1.6) { c.throttle = 0; c.brake = k.speed > 12; }
+    else if (Math.abs(diff) > 1.0) { c.throttle *= 0.35; }
 
     // ----- drifting -----
+    // Reads the raw heading error (diff), not the gain-amplified c.steer —
+    // c.steer saturates to ±1 for even small errors at high steerGain, which
+    // would otherwise make this trigger (and stay latched) far too often.
     if (!k.driftActive) {
-      const wantDrift = this.skill > 0.35 && k.speed > 19 && Math.abs(c.steer) > 0.6
-        && curvAhead > 0.012 && k.grounded && !this.onShortcut;
+      const wantDrift = this.skill > 0.35 && k.speed > 19 && Math.abs(diff) > 0.4
+        && curvAhead > 0.018 && k.grounded && !this.onShortcut;
       if (wantDrift) { c.drift = true; this.driftHold = 0.4; }
       else c.drift = false;
     } else {
-      // hold the drift while the corner lasts
+      // Hold the drift while the corner lasts, but require nearly as much
+      // turn as the entry condition — otherwise this refreshes on almost
+      // any residual heading error and the drift never releases (never
+      // getting the boost) through a whole sequence of corners.
       this.driftHold -= dt;
-      const stillTurning = Math.abs(c.steer) > 0.25 && curvAhead > 0.008;
+      const stillTurning = Math.abs(diff) > 0.3 && curvAhead > 0.014;
       if (stillTurning) this.driftHold = 0.3;
       c.drift = this.driftHold > 0 && k.speed > 14;
     }

@@ -2,8 +2,10 @@
 import * as THREE from 'three';
 import { input } from './input.js';
 import { audio } from './audio.js';
+import { clamp } from './rng.js';
 import { CHARACTERS, AI_SKINS } from '../config/characters.js';
 import { TRACKS, getTrack } from '../config/tracks.js';
+import { getDifficulty, loadDifficultyId, saveDifficultyId } from '../config/difficulty.js';
 import { TrackData } from '../track/trackData.js';
 import { buildTrackMeshes } from '../track/trackMesh.js';
 import { buildEnvironment } from '../track/environment.js';
@@ -45,6 +47,7 @@ export class Game {
     this.menuOrbitT = 0;
     this.selectedChar = CHARACTERS[0].id;
     this.selectedTrack = TRACKS[0].id;
+    this.difficulty = loadDifficultyId();
     this._clock = new THREE.Clock();
 
     window.addEventListener('resize', () => this._onResize());
@@ -89,9 +92,10 @@ export class Game {
 
   _showSettings(onBack) {
     this.screens.showSettings(
-      audio.volumes, audio.engineMode,
+      audio.volumes, audio.engineMode, this.difficulty,
       (kind, v) => audio.setVolume(kind, v),
       (mode) => audio.setEngineMode(mode),
+      (id) => { this.difficulty = id; saveDifficultyId(id); },
       onBack);
   }
 
@@ -161,6 +165,7 @@ export class Game {
     player.controller = new PlayerController(player);
     karts.push(player);
 
+    const diff = getDifficulty(this.difficulty);
     const others = CHARACTERS.filter((c) => c.id !== playerChar.id);
     for (let i = 0; i < 7; i++) {
       const base = others[i % others.length];
@@ -173,10 +178,12 @@ export class Game {
         accel: Math.min(1, Math.max(0, base.accel + (Math.random() - 0.5) * 0.14)),
       };
       const kart = new Kart({ character, track, name: skin.name });
+      const skill = clamp(
+        diff.skillMin + (diff.skillMax - diff.skillMin) * (i / 6) + (Math.random() - 0.5) * 0.06, 0, 1);
       kart.controller = new AIController(kart, track, {
-        skill: 0.5 + 0.4 * (i / 6) + Math.random() * 0.1,
+        skill,
         laneBias: (i / 6) * 2 - 1,
-        usesShortcut: Math.random() < 0.5,
+        usesShortcut: Math.random() < 0.25 + skill * 0.55,
       });
       karts.push(kart);
     }

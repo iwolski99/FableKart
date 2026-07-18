@@ -3,6 +3,7 @@
 import { audio } from '../core/audio.js';
 import { CHARACTERS } from '../config/characters.js';
 import { TRACKS } from '../config/tracks.js';
+import { DIFFICULTIES } from '../config/difficulty.js';
 import { formatTime } from './hud.js';
 
 const bestKey = (trackId) => `fablekart_best_${trackId}`;
@@ -332,7 +333,7 @@ export class Screens {
   }
 
   // ---------------- settings ----------------
-  showSettings(volumes, engineMode, onChange, onEngineModeChange, onBack) {
+  showSettings(volumes, engineMode, difficultyId, onChange, onEngineModeChange, onDifficultyChange, onBack) {
     const el = document.createElement('div');
     el.className = 'screen bg-shade';
     const sliderRow = (label, kind, value) => `
@@ -350,9 +351,17 @@ export class Screens {
         ${sliderRow('Vocals', 'vocals', volumes.vocals)}
         <div class="vol-row">
           <label>Engine</label>
-          <div class="segmented" data-role="engine-toggle">
-            <button class="seg-btn ${engineMode === 'sample' ? 'active' : ''}" data-mode="sample">Realistic</button>
-            <button class="seg-btn ${engineMode === 'synth' ? 'active' : ''}" data-mode="synth">Synth</button>
+          <div class="segmented" data-group="engine">
+            <button class="seg-btn ${engineMode === 'sample' ? 'active' : ''}" data-value="sample">Realistic</button>
+            <button class="seg-btn ${engineMode === 'synth' ? 'active' : ''}" data-value="synth">Synth</button>
+          </div>
+        </div>
+        <div class="vol-row">
+          <label>Skill</label>
+          <div class="segmented" data-group="difficulty">
+            ${DIFFICULTIES.map((d) => `
+              <button class="seg-btn ${difficultyId === d.id ? 'active' : ''}" data-value="${d.id}">${d.name}</button>
+            `).join('')}
           </div>
         </div>
       </div>
@@ -368,11 +377,14 @@ export class Screens {
         onChange(kind, v);
       });
     });
-    el.querySelectorAll('.seg-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        audio.uiMove();
-        el.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
-        onEngineModeChange(btn.dataset.mode);
+    el.querySelectorAll('.segmented').forEach((group) => {
+      const handler = group.dataset.group === 'engine' ? onEngineModeChange : onDifficultyChange;
+      group.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          audio.uiMove();
+          group.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
+          handler(btn.dataset.value);
+        });
       });
     });
     el.querySelector('[data-act="back"]').addEventListener('click', () => { audio.uiSelect(); onBack(); });
