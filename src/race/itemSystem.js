@@ -146,6 +146,7 @@ export class ItemSystem {
     this.scene.add(group);
     this.mines.push({ pos: group.position, owner: kart, armT: 0.8, ownerGrace: 1.2, mesh: group, light });
     if (this.mines.length > 14) this._removeMine(0, false);
+    kart.emit('mineDrop');
   }
 
   _removeMine(i, boom = true) {

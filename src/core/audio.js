@@ -1,6 +1,20 @@
-// Fully procedural audio: engine loop, synthesized SFX and a tiny generative
-// chiptune sequencer. No samples, everything is oscillators + shaped noise.
+// Engine loop, skid, and one-shot SFX play from real recorded/generated
+// clips (ElevenLabs) when available, falling back to synthesized oscillators
+// + shaped noise if a clip hasn't loaded yet (or failed to). Music stays a
+// fully procedural generative chiptune sequencer either way.
 import { clamp } from './rng.js';
+
+// Relative to the deployed base so this works from any subpath.
+const SFX_BASE = `${import.meta.env.BASE_URL}audio/sfx/`;
+const SAMPLE_FILES = {
+  engineLoop: 'engine-loop.mp3',
+  driftLoop: 'drift-loop.mp3',
+  explosion: 'explosion.mp3',
+  powerup: 'powerup.mp3',
+  itemThrow: 'item-throw.mp3',
+  countdownDing: 'countdown-ding.mp3',
+  goDing: 'go-ding.mp3',
+};
 
 class AudioManager {
   constructor() {
@@ -13,6 +27,7 @@ class AudioManager {
     this.skid = null;
     this.music = null;
     this._noiseBuf = null;
+    this.samples = {};
   }
 
   /** Must be called from a user gesture. Safe to call repeatedly. */
@@ -43,6 +58,38 @@ class AudioManager {
 
     this._noiseBuf = this._makeNoiseBuffer();
     this.music = new Music(this.ctx, this.musicBus);
+    this._loadSamples();
+  }
+
+  /** Fire-and-forget: fetch + decode every clip. Small mp3s, plenty of time
+   *  before a race actually starts, and every call site tolerates a clip
+   *  not being ready yet by falling back to its synthesized version. */
+  async _loadSamples() {
+    await Promise.all(Object.entries(SAMPLE_FILES).map(async ([key, file]) => {
+      try {
+        const res = await fetch(SFX_BASE + file);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const bytes = await res.arrayBuffer();
+        this.samples[key] = await this.ctx.decodeAudioData(bytes);
+      } catch (err) {
+        console.warn(`[audio] couldn't load ${file}:`, err?.message ?? err);
+      }
+    }));
+  }
+
+  /** Play a loaded clip. Returns false (does nothing) if not loaded yet, so
+   *  callers can fall through to a procedural fallback. */
+  _playBuffer(key, { gain = 0.5, rate = 1, when = 0, bus = null } = {}) {
+    const buf = this.samples[key];
+    if (!buf || !this.ctx) return false;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+    const g = this.ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g).connect(bus || this.sfxBus);
+    src.start(this.ctx.currentTime + when);
+    return true;
   }
 
   setMuted(m) {
@@ -111,13 +158,16 @@ class AudioManager {
   }
   countBeep(final = false) {
     if (final) {
+      if (this._playBuffer('goDing', { gain: 0.65 })) return;
       this._tone({ freq: 880, dur: 0.5, type: 'square', gain: 0.22 });
       this._tone({ freq: 1320, dur: 0.5, type: 'sawtooth', gain: 0.1 });
     } else {
+      if (this._playBuffer('countdownDing', { gain: 0.55 })) return;
       this._tone({ freq: 440, dur: 0.16, type: 'square', gain: 0.2 });
     }
   }
   boost(pitch = 1) {
+    if (this._playBuffer('powerup', { gain: 0.5, rate: 0.92 + 0.16 * pitch })) return;
     this._noise({ dur: 0.55, gain: 0.3, filter: 900 * pitch, endFilter: 5200 * pitch, type: 'bandpass', q: 1.2 });
     this._tone({ freq: 190 * pitch, endFreq: 720 * pitch, dur: 0.4, type: 'sawtooth', gain: 0.16 });
   }
@@ -134,10 +184,17 @@ class AudioManager {
   itemLand() { this._tone({ freq: 520, dur: 0.12, type: 'triangle', gain: 0.18 }); }
   rouletteTick() { this._tone({ freq: 900, dur: 0.03, type: 'square', gain: 0.06 }); }
   rocketFire() {
+    if (this._playBuffer('itemThrow', { gain: 0.5 })) return;
     this._noise({ dur: 0.7, gain: 0.3, filter: 2600, endFilter: 300, q: 0.6 });
     this._tone({ freq: 300, endFreq: 90, dur: 0.6, type: 'sawtooth', gain: 0.18 });
   }
+  mineDrop() {
+    if (this._playBuffer('itemThrow', { gain: 0.42, rate: 0.82 })) return;
+    this._tone({ freq: 260, endFreq: 90, dur: 0.22, type: 'square', gain: 0.16 });
+    this._noise({ dur: 0.18, gain: 0.14, filter: 600, endFilter: 200 });
+  }
   explosion() {
+    if (this._playBuffer('explosion', { gain: 0.55 })) return;
     this._noise({ dur: 0.8, gain: 0.5, filter: 2400, endFilter: 120, q: 0.4 });
     this._tone({ freq: 130, endFreq: 38, dur: 0.7, type: 'sawtooth', gain: 0.3 });
   }
@@ -167,6 +224,7 @@ class AudioManager {
     this._noise({ dur: 0.2, gain: 0.16, filter: 3000, type: 'highpass' });
   }
   lap(finalLap = false) {
+    if (this._playBuffer('countdownDing', { gain: finalLap ? 0.7 : 0.5, rate: finalLap ? 1.15 : 1 })) return;
     const base = finalLap ? [523, 659, 784, 1047] : [523, 659, 784];
     base.forEach((f, i) => this._tone({ freq: f, dur: 0.14, type: 'square', gain: 0.14, when: i * 0.11 }));
   }
@@ -184,50 +242,86 @@ class AudioManager {
   startEngine() {
     if (!this.ctx || this.engine) return;
     const t0 = this.ctx.currentTime;
-    const oscA = this.ctx.createOscillator();
-    const oscB = this.ctx.createOscillator();
-    oscA.type = 'sawtooth';
-    oscB.type = 'square';
-    const filt = this.ctx.createBiquadFilter();
-    filt.type = 'lowpass';
-    filt.frequency.value = 500;
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0, t0);
-    g.gain.linearRampToValueAtTime(0.055, t0 + 0.4);
-    const lfo = this.ctx.createOscillator();
-    lfo.frequency.value = 11;
-    const lfoGain = this.ctx.createGain();
-    lfoGain.gain.value = 3;
-    lfo.connect(lfoGain).connect(oscA.frequency);
-    oscA.connect(filt); oscB.connect(filt);
-    filt.connect(g).connect(this.sfxBus);
-    oscA.start(); oscB.start(); lfo.start();
-    this.engine = { oscA, oscB, filt, g, lfo };
 
-    const skidSrc = this.ctx.createBufferSource();
-    skidSrc.buffer = this._noiseBuf;
-    skidSrc.loop = true;
-    const skidFilt = this.ctx.createBiquadFilter();
-    skidFilt.type = 'bandpass';
-    skidFilt.frequency.value = 800;
-    skidFilt.Q.value = 1.4;
-    const skidGain = this.ctx.createGain();
-    skidGain.gain.value = 0;
-    skidSrc.connect(skidFilt).connect(skidGain).connect(this.sfxBus);
-    skidSrc.start();
-    this.skid = { src: skidSrc, filt: skidFilt, g: skidGain };
+    if (this.samples.engineLoop) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.samples.engineLoop;
+      src.loop = true;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(0.45, t0 + 0.4);
+      src.connect(g).connect(this.sfxBus);
+      src.start(t0);
+      this.engine = { sample: true, src, g };
+    } else {
+      const oscA = this.ctx.createOscillator();
+      const oscB = this.ctx.createOscillator();
+      oscA.type = 'sawtooth';
+      oscB.type = 'square';
+      const filt = this.ctx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 500;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(0.055, t0 + 0.4);
+      const lfo = this.ctx.createOscillator();
+      lfo.frequency.value = 11;
+      const lfoGain = this.ctx.createGain();
+      lfoGain.gain.value = 3;
+      lfo.connect(lfoGain).connect(oscA.frequency);
+      oscA.connect(filt); oscB.connect(filt);
+      filt.connect(g).connect(this.sfxBus);
+      oscA.start(); oscB.start(); lfo.start();
+      this.engine = { sample: false, oscA, oscB, filt, g, lfo };
+    }
+
+    if (this.samples.driftLoop) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.samples.driftLoop;
+      src.loop = true;
+      const g = this.ctx.createGain();
+      g.gain.value = 0;
+      src.connect(g).connect(this.sfxBus);
+      src.start(t0);
+      this.skid = { sample: true, src, g };
+    } else {
+      const skidSrc = this.ctx.createBufferSource();
+      skidSrc.buffer = this._noiseBuf;
+      skidSrc.loop = true;
+      const skidFilt = this.ctx.createBiquadFilter();
+      skidFilt.type = 'bandpass';
+      skidFilt.frequency.value = 800;
+      skidFilt.Q.value = 1.4;
+      const skidGain = this.ctx.createGain();
+      skidGain.gain.value = 0;
+      skidSrc.connect(skidFilt).connect(skidGain).connect(this.sfxBus);
+      skidSrc.start();
+      this.skid = { sample: false, src: skidSrc, filt: skidFilt, g: skidGain };
+    }
   }
 
   /** ratio 0..1 of top speed; drift 0..1 skid intensity */
   setEngine(ratio, drift = 0, boosting = false) {
     if (!this.engine) return;
     const t = this.ctx.currentTime;
-    const f = 65 + ratio * 175 + (boosting ? 30 : 0);
-    this.engine.oscA.frequency.setTargetAtTime(f, t, 0.06);
-    this.engine.oscB.frequency.setTargetAtTime(f * 0.501, t, 0.06);
-    this.engine.filt.frequency.setTargetAtTime(400 + ratio * 2600, t, 0.08);
-    this.skid.g.gain.setTargetAtTime(drift * 0.16, t, 0.05);
-    this.skid.filt.frequency.setTargetAtTime(700 + drift * 700, t, 0.1);
+    if (this.engine.sample) {
+      const rate = 0.55 + ratio * 0.85 + (boosting ? 0.18 : 0);
+      this.engine.src.playbackRate.setTargetAtTime(rate, t, 0.08);
+      const gain = 0.22 + ratio * 0.3 + (boosting ? 0.08 : 0);
+      this.engine.g.gain.setTargetAtTime(gain, t, 0.08);
+    } else {
+      const f = 65 + ratio * 175 + (boosting ? 30 : 0);
+      this.engine.oscA.frequency.setTargetAtTime(f, t, 0.06);
+      this.engine.oscB.frequency.setTargetAtTime(f * 0.501, t, 0.06);
+      this.engine.filt.frequency.setTargetAtTime(400 + ratio * 2600, t, 0.08);
+    }
+    if (this.skid.sample) {
+      this.skid.g.gain.setTargetAtTime(drift * 0.5, t, 0.06);
+      this.skid.src.playbackRate.setTargetAtTime(0.85 + drift * 0.35, t, 0.1);
+    } else {
+      this.skid.g.gain.setTargetAtTime(drift * 0.16, t, 0.05);
+      this.skid.filt.frequency.setTargetAtTime(700 + drift * 700, t, 0.1);
+    }
   }
 
   stopEngine() {
@@ -235,9 +329,14 @@ class AudioManager {
     const t = this.ctx.currentTime;
     this.engine.g.gain.setTargetAtTime(0, t, 0.15);
     this.skid.g.gain.setTargetAtTime(0, t, 0.1);
-    const { oscA, oscB, lfo } = this.engine;
-    const src = this.skid.src;
-    setTimeout(() => { try { oscA.stop(); oscB.stop(); lfo.stop(); src.stop(); } catch { /* already stopped */ } }, 600);
+    const engine = this.engine, skid = this.skid;
+    setTimeout(() => {
+      try {
+        if (engine.sample) engine.src.stop();
+        else { engine.oscA.stop(); engine.oscB.stop(); engine.lfo.stop(); }
+        skid.src.stop();
+      } catch { /* already stopped */ }
+    }, 600);
     this.engine = null;
     this.skid = null;
   }

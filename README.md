@@ -48,8 +48,10 @@ path on the minimap is a dirt shortcut. Boost pads and a rolling start boost
   everyone ahead) and a bubble shield that eats one hit.
 - **AI with rubber-banding** so races stay close, plus per-driver skill,
   racing-line apexing, drifting and shortcut usage.
-- **Audio**: synthesized engine, skid, item and impact SFX plus a generative
-  chiptune soundtrack per theme (WebAudio, no samples).
+- **Audio**: generated engine loop, drift screech, boost, item-throw,
+  explosion and countdown/lap-ding clips (`public/audio/sfx/`), with
+  synthesized WebAudio versions as an automatic fallback for anything not
+  (yet) recorded, plus a fully generative chiptune soundtrack per theme.
 - **Rendering**: dynamic shadows, per-theme sky shader (sun, stars, night),
   fog, canvas-painted PBR-ish textures, GPU point-sprite particles (drift
   sparks, boost flames, explosions, geysers), chase camera with FOV kick and

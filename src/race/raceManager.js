@@ -404,6 +404,7 @@ export class Race {
           case 'itemLand': if (k.isPlayer) audio.itemLand(); break;
           case 'useItem': break;
           case 'rocketFire': if (near) audio.rocketFire(); break;
+          case 'mineDrop': if (near) audio.mineDrop(); break;
           case 'star': if (k.isPlayer) audio.star(); break;
           case 'shield': if (k.isPlayer) audio.shieldUp(); break;
           case 'shieldBlock': if (near) audio.shieldBlock(); break;
