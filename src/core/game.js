@@ -1,5 +1,9 @@
 // Game shell: renderer, screen flow, race lifecycle, main loop.
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
 import { clamp } from './rng.js';
@@ -24,16 +28,36 @@ import { Screens } from '../ui/screens.js';
 export class Game {
   constructor() {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Capped lower than before (was 2) — this is the single biggest lever on
+    // fragment-shading cost (every pixel, every light, every material) and
+    // the game was dropping frames even on the idle menu backdrop.
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCFShadowMap instead of PCFSoftShadowMap — meaningfully cheaper per
+    // shadowed fragment, the softer edge quality difference is subtle.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     document.getElementById('app').appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(
       72, window.innerWidth / window.innerHeight, 0.1, 2000);
+
+    // ---- postprocessing: a tasteful, cheap bloom pass ----
+    // Bloom resolution is deliberately well under full canvas size — it's a
+    // low-frequency glow effect that doesn't need sharp detail, and the
+    // mip-chain blur cost scales with it. Threshold is high so only genuinely
+    // bright/emissive things (neon strips, lit windows, lamps, lava) bloom;
+    // normal lit surfaces stay under it and are untouched.
+    this.composer = new EffectComposer(this.renderer);
+    this.renderPass = new RenderPass(new THREE.Scene(), this.camera);
+    this.composer.addPass(this.renderPass);
+    const bloomRes = new THREE.Vector2(
+      Math.round(window.innerWidth / 2), Math.round(window.innerHeight / 2));
+    this.bloomPass = new UnrealBloomPass(bloomRes, 0.45, 0.35, 0.86);
+    this.composer.addPass(this.bloomPass);
+    this.composer.addPass(new OutputPass());
 
     this.hud = new HUD(document.getElementById('hud'));
     this.screens = new Screens(document.getElementById('ui'));
@@ -138,6 +162,13 @@ export class Game {
     const trackMeshes = buildTrackMeshes(track);
     scene.add(trackMeshes.group);
     this.bundle = { scene, env, trackMeshes, track, karts: [] };
+    this.renderPass.scene = scene;
+    // Nothing here ever moves except the orbiting camera, and shadow maps
+    // are computed from the light's perspective (camera-independent) — so
+    // the shadow pass can render once and be reused every frame instead of
+    // re-rendering the whole shadow-casting scenery on every single frame.
+    env.sun.shadow.autoUpdate = false;
+    env.sun.shadow.needsUpdate = true;
   }
 
   // ------------------------------------------------------------------
@@ -154,6 +185,8 @@ export class Game {
     const env = buildEnvironment(scene, track);
     const trackMeshes = buildTrackMeshes(track);
     scene.add(trackMeshes.group);
+    this.renderPass.scene = scene;
+    env.sun.shadow.autoUpdate = true; // karts move during a race, shadows must follow
 
     const particles = new Particles(scene);
     const itemSystem = new ItemSystem(scene, track, particles);
@@ -178,6 +211,8 @@ export class Game {
         accel: Math.min(1, Math.max(0, base.accel + (Math.random() - 0.5) * 0.14)),
       };
       const kart = new Kart({ character, track, name: skin.name });
+      kart.maxSpeed *= diff.speedMult;
+      kart.accelRate *= diff.speedMult;
       const skill = clamp(
         diff.skillMin + (diff.skillMax - diff.skillMin) * (i / 6) + (Math.random() - 0.5) * 0.06, 0, 1);
       kart.controller = new AIController(kart, track, {
@@ -290,6 +325,9 @@ export class Game {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+    this.bloomPass.resolution.set(
+      Math.round(window.innerWidth / 2), Math.round(window.innerHeight / 2));
   }
 
   // ------------------------------------------------------------------
@@ -315,10 +353,10 @@ export class Game {
           this.chase.update(dt, this.race.player, this.race);
         }
       }
-      if (this.bundle) this.renderer.render(this.bundle.scene, this.camera);
+      if (this.bundle) this.composer.render();
     } else if (this.mode === 'race' && this.bundle) {
       // paused: keep rendering the frozen frame from the chase camera
-      this.renderer.render(this.bundle.scene, this.camera);
+      this.composer.render();
     } else if (this.mode === 'menu-results' && this.bundle) {
       // slow orbit around the finished race
       if (this.race) {
@@ -326,7 +364,7 @@ export class Game {
         for (const k of this.bundle.karts) k.updateVisuals(dt, this.race.time);
       }
       this.bundle.env.update(dt);
-      this.renderer.render(this.bundle.scene, this.camera);
+      this.composer.render();
     } else if (this.bundle) {
       // menu backdrop: lazy orbit over the track
       this.menuOrbitT += dt * 0.05;
@@ -338,7 +376,7 @@ export class Game {
         c.pos.z + Math.cos(this.menuOrbitT) * 90);
       this.camera.lookAt(c.pos.x, c.pos.y, c.pos.z);
       this.bundle.env.update(dt);
-      this.renderer.render(this.bundle.scene, this.camera);
+      this.composer.render();
     }
 
     input.endFrame();

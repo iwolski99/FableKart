@@ -87,7 +87,7 @@ export function buildEnvironment(scene, track, quality = 1) {
   const sd = new THREE.Vector3(...theme.sunDir).normalize();
   sun.position.copy(sd.clone().multiplyScalar(240));
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(1536, 1536);
   const ext = 200;
   sun.shadow.camera.left = -ext; sun.shadow.camera.right = ext;
   sun.shadow.camera.top = ext; sun.shadow.camera.bottom = -ext;
@@ -149,9 +149,11 @@ export function buildEnvironment(scene, track, quality = 1) {
   terrGeo.computeVertexNormals();
   const grassTex = makeGrassTexture(0xffffff, 0xcccccc);
   grassTex.repeat.set(70, 70);
-  const terrMat = new THREE.MeshStandardMaterial({
-    map: grassTex, vertexColors: true, roughness: 1,
-  });
+  // Lambert (diffuse-only) instead of Standard (full PBR) — grass has no
+  // meaningful specular highlight anyway, and this is the single biggest
+  // fragment-shaded surface in the scene, so the cheaper shading model here
+  // is one of the highest-leverage performance wins available.
+  const terrMat = new THREE.MeshLambertMaterial({ map: grassTex, vertexColors: true });
   const terrain = new THREE.Mesh(terrGeo, terrMat);
   terrain.receiveShadow = true;
   group.add(terrain);
@@ -357,6 +359,18 @@ export function buildEnvironment(scene, track, quality = 1) {
       new THREE.MeshStandardMaterial({ emissive: 0xbfd8ff, emissiveIntensity: 2.4, color: 0x111111 }),
       bulbT, { shadow: false });
 
+    // A sparse subset of the lamps get an actual (non-shadow-casting, short
+    // range) point light so they visibly light the road/curb beneath them —
+    // every lamp would be a lot of extra per-fragment lighting cost for
+    // limited visible gain, so only light every third one.
+    bulbT.forEach((m, i) => {
+      if (i % 3 !== 0) return;
+      const pos = new THREE.Vector3().setFromMatrixPosition(m);
+      const lamp = new THREE.PointLight(0xbfd8ff, 3.2, 13, 2);
+      lamp.position.copy(pos);
+      group.add(lamp);
+    });
+
     mountains(0x141a33, 0x0d1128);
   }
 
@@ -392,6 +406,7 @@ export function buildEnvironment(scene, track, quality = 1) {
   return {
     group,
     sunDir: sd,
+    sun,
     update(dt) { for (const fn of animated) fn(dt); },
     dispose() {
       scene.remove(group);
