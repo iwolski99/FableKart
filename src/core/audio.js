@@ -15,6 +15,15 @@ const TRACK_MUSIC_FILES = {
   city: 'city.mp3',
 };
 
+const ENGINE_MODE_KEY = 'fablekart_engine_mode';
+function loadEngineMode() {
+  try {
+    return localStorage.getItem(ENGINE_MODE_KEY) === 'synth' ? 'synth' : 'sample';
+  } catch {
+    return 'sample';
+  }
+}
+
 const VOL_KEY = 'fablekart_volumes';
 // Real recorded music tends to sit much louder than short synthesized SFX,
 // so music defaults a notch below SFX/vocals until the player rebalances it.
@@ -66,6 +75,7 @@ class AudioManager {
     this._noiseBuf = null;
     this.samples = {};
     this.volumes = loadVolumes();
+    this.engineMode = loadEngineMode(); // 'sample' | 'synth' — user's preferred engine sound
   }
 
   /** Must be called from a user gesture. Safe to call repeatedly. */
@@ -115,6 +125,14 @@ class AudioManager {
     try { localStorage.setItem(VOL_KEY, JSON.stringify(this.volumes)); } catch { /* storage unavailable */ }
   }
 
+  /** 'sample' (recorded engine clip) or 'synth' (synthesized growl). */
+  setEngineMode(mode) {
+    if (mode !== 'sample' && mode !== 'synth') return;
+    this.engineMode = mode;
+    try { localStorage.setItem(ENGINE_MODE_KEY, mode); } catch { /* storage unavailable */ }
+    this._updateEngineModeGains();
+  }
+
   /** Fire-and-forget: fetch + decode every clip. Small mp3s, plenty of time
    *  before a race actually starts, and every call site tolerates a clip
    *  not being ready yet by falling back to its synthesized version. */
@@ -129,6 +147,13 @@ class AudioManager {
         console.warn(`[audio] couldn't load ${file}:`, err?.message ?? err);
       }
     }));
+    // If the engine clip finished loading after the engine already started
+    // (e.g. a very fast menu navigation), and the player wants it, rebuild
+    // so it doesn't get stuck on the synth fallback for the whole race.
+    if (this.engine && !this.engine.sampleSrc && this.samples.engineLoop && this.engineMode === 'sample') {
+      this.stopEngine();
+      this.startEngine();
+    }
   }
 
   /** Play a loaded clip. Returns false (does nothing) if not loaded yet, so
@@ -303,42 +328,55 @@ class AudioManager {
   geyser() { this._noise({ dur: 0.9, gain: 0.2, filter: 500, endFilter: 2400, q: 0.5 }); }
 
   // ---------- engine loop ----------
+  // Both the synth and (if loaded) recorded engine are always built and kept
+  // running silently; engineMode just crossfades which one is audible via
+  // oscModeGain/sampleModeGain, so switching in Settings is instant with no
+  // restart glitch. A single shared levelGain (driven by setEngine's ratio)
+  // is the one place overall engine volume lives — muteEngine() zeroing that
+  // one node is what actually guarantees silence during pause, unlike the
+  // old per-variant gain formulas which had a nonzero floor and never truly
+  // went quiet.
 
   startEngine() {
     if (!this.ctx || this.engine) return;
     const t0 = this.ctx.currentTime;
 
+    const levelGain = this.ctx.createGain();
+    levelGain.gain.setValueAtTime(0, t0);
+    levelGain.gain.linearRampToValueAtTime(0.12, t0 + 0.4);
+    levelGain.connect(this.sfxBus);
+
+    // synthesized variant — deep low-RPM growl, not a high-pitched toy whine
+    const oscA = this.ctx.createOscillator();
+    const oscB = this.ctx.createOscillator();
+    oscA.type = 'sawtooth';
+    oscB.type = 'square';
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 230;
+    const oscModeGain = this.ctx.createGain();
+    const lfo = this.ctx.createOscillator();
+    lfo.frequency.value = 9;
+    const lfoGain = this.ctx.createGain();
+    lfoGain.gain.value = 1.4;
+    lfo.connect(lfoGain).connect(oscA.frequency);
+    oscA.connect(filt); oscB.connect(filt);
+    filt.connect(oscModeGain).connect(levelGain);
+    oscA.start(t0); oscB.start(t0); lfo.start(t0);
+
+    // recorded variant, only if the clip has loaded by now
+    let sampleSrc = null, sampleModeGain = null;
     if (this.samples.engineLoop) {
-      const src = this.ctx.createBufferSource();
-      src.buffer = this.samples.engineLoop;
-      src.loop = true;
-      const g = this.ctx.createGain();
-      g.gain.setValueAtTime(0, t0);
-      g.gain.linearRampToValueAtTime(0.45, t0 + 0.4);
-      src.connect(g).connect(this.sfxBus);
-      src.start(t0);
-      this.engine = { sample: true, src, g };
-    } else {
-      const oscA = this.ctx.createOscillator();
-      const oscB = this.ctx.createOscillator();
-      oscA.type = 'sawtooth';
-      oscB.type = 'square';
-      const filt = this.ctx.createBiquadFilter();
-      filt.type = 'lowpass';
-      filt.frequency.value = 500;
-      const g = this.ctx.createGain();
-      g.gain.setValueAtTime(0, t0);
-      g.gain.linearRampToValueAtTime(0.055, t0 + 0.4);
-      const lfo = this.ctx.createOscillator();
-      lfo.frequency.value = 11;
-      const lfoGain = this.ctx.createGain();
-      lfoGain.gain.value = 3;
-      lfo.connect(lfoGain).connect(oscA.frequency);
-      oscA.connect(filt); oscB.connect(filt);
-      filt.connect(g).connect(this.sfxBus);
-      oscA.start(); oscB.start(); lfo.start();
-      this.engine = { sample: false, oscA, oscB, filt, g, lfo };
+      sampleSrc = this.ctx.createBufferSource();
+      sampleSrc.buffer = this.samples.engineLoop;
+      sampleSrc.loop = true;
+      sampleModeGain = this.ctx.createGain();
+      sampleSrc.connect(sampleModeGain).connect(levelGain);
+      sampleSrc.start(t0);
     }
+
+    this.engine = { oscA, oscB, filt, lfo, oscModeGain, sampleSrc, sampleModeGain, levelGain, muted: false };
+    this._updateEngineModeGains();
 
     if (this.samples.driftLoop) {
       const src = this.ctx.createBufferSource();
@@ -365,21 +403,30 @@ class AudioManager {
     }
   }
 
-  /** ratio 0..1 of top speed; drift 0..1 skid intensity */
-  setEngine(ratio, drift = 0, boosting = false) {
+  _updateEngineModeGains() {
     if (!this.engine) return;
     const t = this.ctx.currentTime;
-    if (this.engine.sample) {
+    const useSample = this.engineMode === 'sample' && !!this.engine.sampleModeGain;
+    this.engine.oscModeGain.gain.setTargetAtTime(useSample ? 0 : 1, t, 0.05);
+    if (this.engine.sampleModeGain) this.engine.sampleModeGain.gain.setTargetAtTime(useSample ? 1 : 0, t, 0.05);
+  }
+
+  /** ratio 0..1 of top speed; drift 0..1 skid intensity */
+  setEngine(ratio, drift = 0, boosting = false) {
+    if (!this.engine || this.engine.muted) return;
+    const t = this.ctx.currentTime;
+
+    const oscFreq = 34 + ratio * 60 + (boosting ? 14 : 0);
+    this.engine.oscA.frequency.setTargetAtTime(oscFreq, t, 0.07);
+    this.engine.oscB.frequency.setTargetAtTime(oscFreq * 0.501, t, 0.07);
+    this.engine.filt.frequency.setTargetAtTime(220 + ratio * 950, t, 0.09);
+    if (this.engine.sampleSrc) {
       const rate = 0.55 + ratio * 0.85 + (boosting ? 0.18 : 0);
-      this.engine.src.playbackRate.setTargetAtTime(rate, t, 0.08);
-      const gain = 0.22 + ratio * 0.3 + (boosting ? 0.08 : 0);
-      this.engine.g.gain.setTargetAtTime(gain, t, 0.08);
-    } else {
-      const f = 65 + ratio * 175 + (boosting ? 30 : 0);
-      this.engine.oscA.frequency.setTargetAtTime(f, t, 0.06);
-      this.engine.oscB.frequency.setTargetAtTime(f * 0.501, t, 0.06);
-      this.engine.filt.frequency.setTargetAtTime(400 + ratio * 2600, t, 0.08);
+      this.engine.sampleSrc.playbackRate.setTargetAtTime(rate, t, 0.08);
     }
+    const level = 0.12 + ratio * 0.32 + (boosting ? 0.08 : 0);
+    this.engine.levelGain.gain.setTargetAtTime(level, t, 0.08);
+
     if (this.skid.sample) {
       this.skid.g.gain.setTargetAtTime(drift * 0.5, t, 0.06);
       this.skid.src.playbackRate.setTargetAtTime(0.85 + drift * 0.35, t, 0.1);
@@ -389,16 +436,29 @@ class AudioManager {
     }
   }
 
+  /** Force full silence regardless of ratio — used on pause. setEngine() is a
+   *  no-op while muted, so nothing can un-silence it until unmuteEngine(). */
+  muteEngine() {
+    if (!this.engine) return;
+    this.engine.muted = true;
+    const t = this.ctx.currentTime;
+    this.engine.levelGain.gain.setTargetAtTime(0, t, 0.1);
+    this.skid.g.gain.setTargetAtTime(0, t, 0.1);
+  }
+  unmuteEngine() {
+    if (this.engine) this.engine.muted = false;
+  }
+
   stopEngine() {
     if (!this.engine) return;
     const t = this.ctx.currentTime;
-    this.engine.g.gain.setTargetAtTime(0, t, 0.15);
+    this.engine.levelGain.gain.setTargetAtTime(0, t, 0.15);
     this.skid.g.gain.setTargetAtTime(0, t, 0.1);
     const engine = this.engine, skid = this.skid;
     setTimeout(() => {
       try {
-        if (engine.sample) engine.src.stop();
-        else { engine.oscA.stop(); engine.oscB.stop(); engine.lfo.stop(); }
+        engine.oscA.stop(); engine.oscB.stop(); engine.lfo.stop();
+        engine.sampleSrc?.stop();
         skid.src.stop();
       } catch { /* already stopped */ }
     }, 600);

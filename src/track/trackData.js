@@ -247,11 +247,15 @@ export class TrackData {
     };
   }
 
-  nearestOnMain(x, z, hint = -1, window = 48) {
+  // Windows sized for how far a kart/camera can actually move between calls
+  // (worst case ~1.6 samples/frame even at max boosted speed under a 24fps
+  // substep), with a healthy safety margin — not for arbitrary jumps, which
+  // pass hint=-1 for a full scan instead.
+  nearestOnMain(x, z, hint = -1, window = 16) {
     return this._projectToSamples(this.samples, this.n, true, this.spacing, x, z, hint, window);
   }
 
-  nearestOnShortcut(x, z, hint = -1, window = 40) {
+  nearestOnShortcut(x, z, hint = -1, window = 12) {
     if (!this.shortcut) return null;
     return this._projectToSamples(
       this.shortcut.samples, this.shortcut.n, false, this.shortcut.spacing, x, z, hint, window);
@@ -272,8 +276,7 @@ export class TrackData {
    */
   groundInfo(x, z, hintMain = -1, hintShort = -1) {
     const main = this.nearestOnMain(x, z, hintMain);
-    // the shortcut spline is short — a full scan is cheap and never stale
-    const sc = this.shortcut ? this.nearestOnShortcut(x, z, -1) : null;
+    const sc = this.shortcut ? this.nearestOnShortcut(x, z, hintShort) : null;
 
     const latM = Math.abs(main.lateral);
     const onRoad = latM <= this.halfWidth;

@@ -72,6 +72,7 @@ export class Kart {
     this.raceDist = 0;
     this.lap = 0;
     this.hintIdx = -1;
+    this.hintIdxShort = -1;
     this.rank = 1;
     this.finished = false;
     this.finishTime = 0;
@@ -95,6 +96,7 @@ export class Kart {
     this.velDir = p.heading;
     this.s = p.s;
     this.hintIdx = -1;
+    this.hintIdxShort = -1;
     this.raceDist = p.s - this.track.length; // negative: behind the line
     this.lap = 0;
   }
@@ -270,8 +272,9 @@ export class Kart {
     this.pos.y += this.vy * dt;
 
     // ---------- ground / surfaces / walls ----------
-    const gi = track.groundInfo(this.pos.x, this.pos.z, this.hintIdx);
+    const gi = track.groundInfo(this.pos.x, this.pos.z, this.hintIdx, this.hintIdxShort);
     this.hintIdx = gi.main.index;
+    this.hintIdxShort = gi.sc?.index ?? this.hintIdxShort;
     this.surface = gi.surface;
     this.lateral = gi.main.lateral;
 

@@ -332,7 +332,7 @@ export class Screens {
   }
 
   // ---------------- settings ----------------
-  showSettings(volumes, onChange, onBack) {
+  showSettings(volumes, engineMode, onChange, onEngineModeChange, onBack) {
     const el = document.createElement('div');
     el.className = 'screen bg-shade';
     const sliderRow = (label, kind, value) => `
@@ -348,6 +348,13 @@ export class Screens {
         ${sliderRow('Music', 'music', volumes.music)}
         ${sliderRow('SFX', 'sfx', volumes.sfx)}
         ${sliderRow('Vocals', 'vocals', volumes.vocals)}
+        <div class="vol-row">
+          <label>Engine</label>
+          <div class="segmented" data-role="engine-toggle">
+            <button class="seg-btn ${engineMode === 'sample' ? 'active' : ''}" data-mode="sample">Realistic</button>
+            <button class="seg-btn ${engineMode === 'synth' ? 'active' : ''}" data-mode="synth">Synth</button>
+          </div>
+        </div>
       </div>
       <div class="btn-row">
         <button class="btn" data-act="back">Back</button>
@@ -359,6 +366,13 @@ export class Screens {
         input.style.setProperty('--fill', `${input.value}%`);
         el.querySelector(`.vol-val[data-val="${kind}"]`).textContent = `${input.value}%`;
         onChange(kind, v);
+      });
+    });
+    el.querySelectorAll('.seg-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        audio.uiMove();
+        el.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
+        onEngineModeChange(btn.dataset.mode);
       });
     });
     el.querySelector('[data-act="back"]').addEventListener('click', () => { audio.uiSelect(); onBack(); });

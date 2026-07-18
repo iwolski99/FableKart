@@ -88,7 +88,11 @@ export class Game {
   }
 
   _showSettings(onBack) {
-    this.screens.showSettings(audio.volumes, (kind, v) => audio.setVolume(kind, v), onBack);
+    this.screens.showSettings(
+      audio.volumes, audio.engineMode,
+      (kind, v) => audio.setVolume(kind, v),
+      (mode) => audio.setEngineMode(mode),
+      onBack);
   }
 
   _showCharSelect() {
@@ -234,7 +238,7 @@ export class Game {
   _pause() {
     if (this.paused || !this.race) return;
     this.paused = true;
-    audio.setEngine(0, 0, false);
+    audio.muteEngine();
     audio.stopMusic();
     this._openPauseMenu();
   }
@@ -251,6 +255,7 @@ export class Game {
   _resume() {
     this.paused = false;
     this.screens.hide();
+    audio.unmuteEngine();
     audio.playMusic(getTrack(this.selectedTrack).theme.key);
   }
 
@@ -291,8 +296,12 @@ export class Game {
       if (input.justPressed('Escape')) {
         this._pause();
       } else {
-        // sub-step when frames get long so physics stays stable
-        const steps = dt > 1 / 45 ? 2 : 1;
+        // Sub-step only for genuinely large frame drops (this game's speeds
+        // and track feature sizes stay stable well below 45fps single-stepped).
+        // Substepping below that threshold would double the physics/AI/item
+        // workload on every already-slow frame — a feedback loop that makes
+        // marginal hardware worse, not better.
+        const steps = dt > 1 / 24 ? 2 : 1;
         const h = dt / steps;
         for (let i = 0; i < steps; i++) this.race?.update(h);
         if (this.race) {

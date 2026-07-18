@@ -17,6 +17,7 @@ export class AIController {
     this.stuckTimer = 0;
     this.stuckRespawns = 0;
     this.shortcutCooldown = 0;
+    this.shortcutHint = -1;
     this.driftHold = 0;
     this.onShortcut = false;
     this.finishedCruise = false;
@@ -56,12 +57,14 @@ export class AIController {
       if (dEntry > 0 && dEntry < 26 && k.surface !== 'grass') this.onShortcut = true;
     }
     if (this.onShortcut && sc) {
-      const proj = t.nearestOnShortcut(k.pos.x, k.pos.z, -1);
+      const proj = t.nearestOnShortcut(k.pos.x, k.pos.z, this.shortcutHint);
+      this.shortcutHint = proj.index;
       const targetS = proj.s + lookahead;
       if (targetS >= sc.length * 0.96 || proj.dist > 24) {
         // done (or lost it) — don't immediately re-commit and ping-pong
         this.onShortcut = false;
         this.shortcutCooldown = 12;
+        this.shortcutHint = -1;
       } else {
         const idx = clamp(Math.round(targetS / sc.spacing), 0, sc.n - 1);
         target = sc.samples[idx].pos;

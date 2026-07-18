@@ -294,6 +294,22 @@ html, body {
 .vol-row input[type="range"]::-moz-range-progress { height: 8px; border-radius: 5px; background: var(--accent); }
 .vol-row input[type="range"]::-moz-range-track { height: 8px; border-radius: 5px; background: rgba(255,255,255,0.14); }
 
+.segmented {
+  grid-column: 2 / span 2; display: flex; gap: 6px;
+  background: rgba(255,255,255,0.08); border-radius: 10px; padding: 4px;
+}
+.seg-btn {
+  flex: 1; pointer-events: auto; cursor: pointer;
+  font-family: var(--ui-font); font-weight: 700; font-size: 13px; letter-spacing: 0.5px;
+  color: #cfd3ff; background: transparent; border: 0; border-radius: 7px; padding: 8px 6px;
+  transition: background 0.15s, color 0.15s;
+}
+.seg-btn:hover { color: #fff; }
+.seg-btn.active {
+  background: linear-gradient(180deg, #ffe375, var(--accent));
+  color: #1a1230; box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+}
+
 /* sound toggle chip */
 .chip-row { position: absolute; right: 18px; top: 14px; display: flex; gap: 8px; z-index: 30; }
 .chip {

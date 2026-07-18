@@ -79,8 +79,13 @@ export function buildTrackMeshes(track) {
   reg(curbL, curbR, curbMat, curbTex);
 
   // ---------------- skirts (hide ribbon underside on elevated bits) -------
+  // Uses the wall color (a structural tone) rather than the ground tone, with
+  // a touch of emissive so it reads as shadowed concrete instead of a pure
+  // black void where ambient light is weak (e.g. under the Neon Vale overpass).
+  const skirtColor = new THREE.Color(theme.wallColor).lerp(new THREE.Color(0x1a1a1a), 0.3);
   const skirtMat = new THREE.MeshStandardMaterial({
-    color: theme.terrainColorB, roughness: 1,
+    color: skirtColor, roughness: 1,
+    emissive: skirtColor, emissiveIntensity: theme.night ? 0.45 : 0.08,
   });
   for (const side of [1, -1]) {
     const n = track.n;
@@ -167,6 +172,90 @@ export function buildTrackMeshes(track) {
     add(posts);
   }
   reg(postGeo, postMat);
+
+  // ---------------- bridge underside (visible driving beneath an overpass) --
+  // Without this, looking up under an elevated section only shows the flat
+  // vertical skirts from either side, which reads as an enclosing black box.
+  // A proper lit underside surface plus accent strip lighting (ambient alone
+  // is too weak on the night track) makes it read as a lit bridge instead.
+  {
+    const elevated = (i) => {
+      const f = track.samples[i];
+      return f.pos.y - track.terrainBase(f.pos.x, f.pos.z) > 3.4;
+    };
+
+    const undersideColor = new THREE.Color(theme.wallColor).lerp(new THREE.Color(0x8a8a8a), 0.15);
+    const undersideMat = new THREE.MeshStandardMaterial({
+      color: undersideColor, roughness: 0.9, side: THREE.DoubleSide,
+      emissive: undersideColor, emissiveIntensity: theme.night ? 0.55 : 0.08,
+    });
+    const verts = [];
+    const idx = [];
+    for (let i = 0; i < track.n; i++) {
+      const j = (i + 1) % track.n;
+      if (!elevated(i) || !elevated(j)) continue;
+      const base = verts.length / 3;
+      for (const k of [i, j]) {
+        const f = track.samples[k];
+        const lx = f.pos.x + f.left.x * (hw + 1.1), lz = f.pos.z + f.left.z * (hw + 1.1);
+        const rx = f.pos.x - f.left.x * (hw + 1.1), rz = f.pos.z - f.left.z * (hw + 1.1);
+        verts.push(lx, f.pos.y - 0.45, lz, rx, f.pos.y - 0.45, rz);
+      }
+      idx.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+    }
+    if (idx.length) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const underside = add(new THREE.Mesh(geo, undersideMat));
+      underside.receiveShadow = true;
+      reg(geo);
+    }
+    reg(undersideMat);
+
+    // accent strip lighting — always visibly glowing regardless of scene
+    // lighting, so the underside reads as an actively lit structure rather
+    // than relying on ambient bounce alone. Two rows: one near the ceiling
+    // (visible looking up) and one at roughly kart-eye-height on the skirts
+    // (visible in the normal forward-facing chase-cam view while driving
+    // through, which is what a player actually sees most of the time).
+    const stripSpots = [];
+    for (let i = 0; i < track.n; i += 5) {
+      if (!elevated(i)) continue;
+      stripSpots.push(track.samples[i]);
+    }
+    if (stripSpots.length) {
+      const stripGeo = new THREE.BoxGeometry(0.16, 0.1, 1.3);
+      const stripMat = new THREE.MeshStandardMaterial({
+        color: 0x0a0a0a, emissive: theme.wallAccent, emissiveIntensity: 2.6,
+      });
+      // one row hugging the ceiling, one row near the actual driving height
+      // of whatever passes underneath (close to local ground, not a fixed
+      // offset from the elevated road — the gap here can be several meters)
+      const totalSpots = stripSpots.length * 2;
+      const stripsL = new THREE.InstancedMesh(stripGeo, stripMat, totalSpots);
+      const stripsR = new THREE.InstancedMesh(stripGeo, stripMat, totalSpots);
+      const m4 = new THREE.Matrix4();
+      let idx2 = 0;
+      for (const f of stripSpots) {
+        const ry = Math.atan2(f.tan.x, f.tan.z);
+        m4.makeRotationY(ry);
+        const ceilingY = f.pos.y - 0.5;
+        const eyeY = track.terrainBase(f.pos.x, f.pos.z) + 2.0;
+        for (const y of [ceilingY, eyeY]) {
+          m4.setPosition(f.pos.x + f.left.x * (hw + 0.5), y, f.pos.z + f.left.z * (hw + 0.5));
+          stripsL.setMatrixAt(idx2, m4);
+          m4.setPosition(f.pos.x - f.left.x * (hw + 0.5), y, f.pos.z - f.left.z * (hw + 0.5));
+          stripsR.setMatrixAt(idx2, m4);
+          idx2++;
+        }
+      }
+      add(stripsL);
+      add(stripsR);
+      reg(stripGeo, stripMat);
+    }
+  }
 
   // ---------------- support pillars under elevated road ----------------
   const pillarSpots = [];

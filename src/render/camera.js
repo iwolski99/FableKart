@@ -13,6 +13,8 @@ export class ChaseCamera {
     this.fovKick = 0;
     this.orbitAngle = 0;
     this.initialized = false;
+    this._groundHintMain = -1;
+    this._groundHintShort = -1;
   }
 
   setMode(m) { this.mode = m; }
@@ -74,9 +76,13 @@ export class ChaseCamera {
       this.look.lerp(this._targetLook, dampFactor(11, dt));
     }
 
-    // keep the camera above the ground
+    // keep the camera above the ground — hinted so this doesn't re-scan the
+    // whole track spline every single frame (camera moves continuously, so
+    // the previous frame's nearest sample is almost always still close)
     if (race) {
-      const gi = race.track.groundInfo(this.pos.x, this.pos.z, -1);
+      const gi = race.track.groundInfo(this.pos.x, this.pos.z, this._groundHintMain, this._groundHintShort);
+      this._groundHintMain = gi.main.index;
+      this._groundHintShort = gi.sc?.index ?? this._groundHintShort;
       if (this.pos.y < gi.y + 0.8) this.pos.y = gi.y + 0.8;
     }
 
