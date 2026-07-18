@@ -131,7 +131,7 @@ export class Screens {
   }
 
   // ---------------- title ----------------
-  showTitle(onStart) {
+  showTitle(onStart, onSettings) {
     const el = document.createElement('div');
     el.className = 'screen bg-shade';
     el.innerHTML = `
@@ -140,12 +140,13 @@ export class Screens {
       <div class="menu-hint">press ENTER or click to race</div>
       <div class="foot-hint" style="margin-top:60px">
         <b>WASD/↑↓←→</b> drive &nbsp; <b>SPACE/SHIFT</b> drift &nbsp;
-        <b>E/ENTER</b> item &nbsp; <b>ESC</b> pause &nbsp; <b>M</b> mute
+        <b>E/ENTER</b> item &nbsp; <b>ESC</b> settings &nbsp; <b>M</b> mute
       </div>`;
     const go = () => { audio.init(); audio.uiSelect(); onStart(); };
     el.addEventListener('pointerdown', go);
     this._mount(el, (e) => {
       if (e.code === 'Enter' || e.code === 'Space') go();
+      else if (e.code === 'Escape' && onSettings) { audio.uiMove(); onSettings(); }
     });
   }
 
@@ -308,7 +309,7 @@ export class Screens {
   }
 
   // ---------------- pause ----------------
-  showPause({ onResume, onRestart, onQuit }) {
+  showPause({ onResume, onRestart, onQuit, onSettings }) {
     const el = document.createElement('div');
     el.className = 'screen bg-shade';
     el.innerHTML = `
@@ -316,15 +317,53 @@ export class Screens {
         <h2>PAUSED</h2>
         <div class="btn-row">
           <button class="btn" data-act="resume">Resume</button>
+          <button class="btn secondary" data-act="settings">Settings</button>
           <button class="btn secondary" data-act="restart">Restart</button>
           <button class="btn secondary" data-act="quit">Quit</button>
         </div>
       </div>`;
     el.querySelector('[data-act="resume"]').addEventListener('click', () => { audio.uiSelect(); onResume(); });
+    el.querySelector('[data-act="settings"]').addEventListener('click', () => { audio.uiSelect(); onSettings(); });
     el.querySelector('[data-act="restart"]').addEventListener('click', () => { audio.uiSelect(); onRestart(); });
     el.querySelector('[data-act="quit"]').addEventListener('click', () => { audio.uiSelect(); onQuit(); });
     this._mount(el, (e) => {
       if (e.code === 'Escape' || e.code === 'Enter') { audio.uiSelect(); onResume(); }
+    });
+  }
+
+  // ---------------- settings ----------------
+  showSettings(volumes, onChange, onBack) {
+    const el = document.createElement('div');
+    el.className = 'screen bg-shade';
+    const sliderRow = (label, kind, value) => `
+      <div class="vol-row">
+        <label for="vol-${kind}">${label}</label>
+        <input id="vol-${kind}" type="range" min="0" max="100" value="${Math.round(value * 100)}"
+          data-kind="${kind}" style="--fill:${Math.round(value * 100)}%" />
+        <span class="vol-val" data-val="${kind}">${Math.round(value * 100)}%</span>
+      </div>`;
+    el.innerHTML = `
+      <h2 class="screen-title">Settings</h2>
+      <div class="settings-panel">
+        ${sliderRow('Music', 'music', volumes.music)}
+        ${sliderRow('SFX', 'sfx', volumes.sfx)}
+        ${sliderRow('Vocals', 'vocals', volumes.vocals)}
+      </div>
+      <div class="btn-row">
+        <button class="btn" data-act="back">Back</button>
+      </div>`;
+    el.querySelectorAll('input[type="range"]').forEach((input) => {
+      input.addEventListener('input', () => {
+        const { kind } = input.dataset;
+        const v = Number(input.value) / 100;
+        input.style.setProperty('--fill', `${input.value}%`);
+        el.querySelector(`.vol-val[data-val="${kind}"]`).textContent = `${input.value}%`;
+        onChange(kind, v);
+      });
+    });
+    el.querySelector('[data-act="back"]').addEventListener('click', () => { audio.uiSelect(); onBack(); });
+    this._mount(el, (e) => {
+      if (e.code === 'Escape' || e.code === 'Enter') { audio.uiSelect(); onBack(); }
     });
   }
 }

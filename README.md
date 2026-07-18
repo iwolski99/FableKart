@@ -11,6 +11,12 @@ external art assets.
 
 ## Running
 
+**Easiest way:** double-click `run-game.command` (Mac/Linux) or `run-game.bat`
+(Windows) in the project root — it installs dependencies on first run and
+opens the game in your browser.
+
+Or from a terminal:
+
 ```bash
 npm install
 npm run dev      # → http://localhost:5173
@@ -26,7 +32,7 @@ Production build: `npm run build` (output in `dist/`, servable from any static h
 | Steer | `A`/`←` · `D`/`→` |
 | Drift (hold, release for mini-turbo) | `Space` or `Shift` |
 | Use item | `E` / `Enter` / `Ctrl` |
-| Pause | `Esc` |
+| Pause (in race) / Settings (at title) | `Esc` |
 | Mute | `M` |
 
 Hold a direction and press drift to hop into a slide — keep it going to charge
@@ -53,8 +59,14 @@ path on the minimap is a dirt shortcut. Boost pads and a rolling start boost
   countdown/lap dings and spoken "3, 2, 1, GO!" (`public/audio/sfx/`) — the
   ding and voice line fire in the same tick so they overlap like the real
   thing. Synthesized WebAudio versions act as an automatic fallback for
-  anything not (yet) recorded, and the soundtrack is a fully generative
-  chiptune sequencer per theme.
+  anything not (yet) recorded.
+- **Music**: a real looping background track per race track (`public/audio/music/`)
+  — Turbo Start (Meadow Loop), Lava Lap (Ember Caldera), Neon Lap (Neon Vale) —
+  streamed and natively looped so it doesn't matter how long a race runs.
+  Menu and results screens keep a fully generative chiptune sequencer.
+- **Settings menu** (`Esc` at the title screen, or Settings from the pause
+  menu mid-race): independent Music / SFX / Vocals volume sliders, persisted
+  to localStorage.
 - **Rendering**: dynamic shadows, per-theme sky shader (sun, stars, night),
   fog, canvas-painted PBR-ish textures, GPU point-sprite particles (drift
   sparks, boost flames, explosions, geysers), chase camera with FOV kick and

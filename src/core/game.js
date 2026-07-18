@@ -82,7 +82,13 @@ export class Game {
     this.mode = 'menu';
     this._buildMenuBackdrop();
     if (audio.ctx) audio.playMusic('menu');
-    this.screens.showTitle(() => this._showCharSelect());
+    this.screens.showTitle(
+      () => this._showCharSelect(),
+      () => this._showSettings(() => this._showTitle()));
+  }
+
+  _showSettings(onBack) {
+    this.screens.showSettings(audio.volumes, (kind, v) => audio.setVolume(kind, v), onBack);
   }
 
   _showCharSelect() {
@@ -230,10 +236,15 @@ export class Game {
     this.paused = true;
     audio.setEngine(0, 0, false);
     audio.stopMusic();
+    this._openPauseMenu();
+  }
+
+  _openPauseMenu() {
     this.screens.showPause({
       onResume: () => this._resume(),
       onRestart: () => { this.paused = false; this.screens.hide(); this.startRace(); },
       onQuit: () => { this.paused = false; this.screens.hide(); this._quitRace(); },
+      onSettings: () => this._showSettings(() => this._openPauseMenu()),
     });
   }
 

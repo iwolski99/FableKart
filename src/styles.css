@@ -258,6 +258,42 @@ html, body {
 }
 .pause-panel h2 { color: #fff; font-style: italic; font-size: 40px; font-weight: 900; margin-bottom: 8px; }
 
+/* ---------------- settings ---------------- */
+.settings-panel {
+  background: var(--panel); border: 3px solid var(--panel-edge); border-radius: 22px;
+  padding: 30px 40px; min-width: min(440px, 92vw);
+  box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+  display: flex; flex-direction: column; gap: 22px;
+}
+.vol-row { display: grid; grid-template-columns: 84px 1fr 52px; align-items: center; gap: 16px; }
+.vol-row label { color: #cfd3ff; font-size: 15px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+.vol-row .vol-val { color: #fff; font-size: 15px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.vol-row input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 8px; border-radius: 5px;
+  background: rgba(255,255,255,0.14);
+  cursor: pointer; outline: none;
+}
+.vol-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: linear-gradient(180deg, #ffe375, var(--accent));
+  border: 2px solid rgba(0,0,0,0.35);
+  box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+  margin-top: -7px;
+}
+.vol-row input[type="range"]::-webkit-slider-runnable-track {
+  height: 8px; border-radius: 5px;
+  background: linear-gradient(90deg, var(--accent), var(--accent) var(--fill, 50%), rgba(255,255,255,0.14) var(--fill, 50%));
+}
+.vol-row input[type="range"]::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(0,0,0,0.35);
+  background: linear-gradient(180deg, #ffe375, var(--accent));
+  box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+}
+.vol-row input[type="range"]::-moz-range-progress { height: 8px; border-radius: 5px; background: var(--accent); }
+.vol-row input[type="range"]::-moz-range-track { height: 8px; border-radius: 5px; background: rgba(255,255,255,0.14); }
+
 /* sound toggle chip */
 .chip-row { position: absolute; right: 18px; top: 14px; display: flex; gap: 8px; z-index: 30; }
 .chip {

@@ -6,6 +6,34 @@ import { clamp } from './rng.js';
 
 // Relative to the deployed base so this works from any subpath.
 const SFX_BASE = `${import.meta.env.BASE_URL}audio/sfx/`;
+const MUSIC_BASE = `${import.meta.env.BASE_URL}audio/music/`;
+// Real looping background tracks per race theme. Themes without an entry
+// (menu, results) keep the generative chiptune sequencer.
+const TRACK_MUSIC_FILES = {
+  meadow: 'meadow.mp3',
+  volcano: 'volcano.mp3',
+  city: 'city.mp3',
+};
+
+const VOL_KEY = 'fablekart_volumes';
+// Real recorded music tends to sit much louder than short synthesized SFX,
+// so music defaults a notch below SFX/vocals until the player rebalances it.
+const DEFAULT_VOLUMES = { music: 0.45, sfx: 0.8, vocals: 0.8 };
+function loadVolumes() {
+  try {
+    const raw = localStorage.getItem(VOL_KEY);
+    if (!raw) return { ...DEFAULT_VOLUMES };
+    const p = JSON.parse(raw);
+    return {
+      music: clamp(p.music ?? DEFAULT_VOLUMES.music, 0, 1),
+      sfx: clamp(p.sfx ?? DEFAULT_VOLUMES.sfx, 0, 1),
+      vocals: clamp(p.vocals ?? DEFAULT_VOLUMES.vocals, 0, 1),
+    };
+  } catch {
+    return { ...DEFAULT_VOLUMES };
+  }
+}
+
 const SAMPLE_FILES = {
   engineLoop: 'engine-loop.mp3',
   driftLoop: 'drift-loop.mp3',
@@ -33,8 +61,11 @@ class AudioManager {
     this.engine = null;
     this.skid = null;
     this.music = null;
+    this.trackMusic = null;
+    this.vocalBus = null;
     this._noiseBuf = null;
     this.samples = {};
+    this.volumes = loadVolumes();
   }
 
   /** Must be called from a user gesture. Safe to call repeatedly. */
@@ -56,16 +87,32 @@ class AudioManager {
     this.masterGain.connect(this.ctx.destination);
 
     this.sfxBus = this.ctx.createGain();
-    this.sfxBus.gain.value = 1;
+    this.sfxBus.gain.value = this.volumes.sfx;
     this.sfxBus.connect(this.master);
 
     this.musicBus = this.ctx.createGain();
-    this.musicBus.gain.value = 0.42;
+    this.musicBus.gain.value = this.volumes.music;
     this.musicBus.connect(this.master);
+
+    this.vocalBus = this.ctx.createGain();
+    this.vocalBus.gain.value = this.volumes.vocals;
+    this.vocalBus.connect(this.master);
 
     this._noiseBuf = this._makeNoiseBuffer();
     this.music = new Music(this.ctx, this.musicBus);
+    this.trackMusic = new TrackMusic(this.ctx, this.musicBus);
     this._loadSamples();
+  }
+
+  /** kind: 'music' | 'sfx' | 'vocals', value: 0..1. Persists to localStorage. */
+  setVolume(kind, value) {
+    const v = clamp(value, 0, 1);
+    this.volumes[kind] = v;
+    if (this.ctx) {
+      const bus = kind === 'music' ? this.musicBus : kind === 'vocals' ? this.vocalBus : this.sfxBus;
+      bus?.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
+    }
+    try { localStorage.setItem(VOL_KEY, JSON.stringify(this.volumes)); } catch { /* storage unavailable */ }
   }
 
   /** Fire-and-forget: fetch + decode every clip. Small mp3s, plenty of time
@@ -178,7 +225,7 @@ class AudioManager {
    *  calling both in the same tick is all that's needed for them to layer. */
   countVoice(n) {
     const key = n === 'go' ? 'voiceGo' : { 3: 'voice3', 2: 'voice2', 1: 'voice1' }[n];
-    if (key) this._playBuffer(key, { gain: 0.85 });
+    if (key) this._playBuffer(key, { gain: 0.85, bus: this.vocalBus });
   }
   boost(pitch = 1) {
     if (this._playBuffer('powerup', { gain: 0.5, rate: 0.92 + 0.16 * pitch })) return;
@@ -360,8 +407,51 @@ class AudioManager {
   }
 
   // ---------- music ----------
-  playMusic(mood) { if (this.music) this.music.play(mood); }
-  stopMusic() { if (this.music) this.music.stop(); }
+  playMusic(mood) {
+    const file = TRACK_MUSIC_FILES[mood];
+    if (file) {
+      this.music?.stop();
+      this.trackMusic?.play(mood, MUSIC_BASE + file);
+    } else {
+      this.trackMusic?.stop();
+      if (this.music) this.music.play(mood);
+    }
+  }
+  stopMusic() {
+    this.music?.stop();
+    this.trackMusic?.stop();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Real recorded background tracks, streamed (not decoded to a buffer — these
+// are multi-minute files) via <audio> + MediaElementSource so the browser
+// handles buffering, and looped natively so it doesn't matter how long a
+// race takes.
+// ---------------------------------------------------------------------------
+class TrackMusic {
+  constructor(ctx, bus) {
+    this.el = new Audio();
+    this.el.loop = true;
+    this.el.preload = 'auto';
+    const source = ctx.createMediaElementSource(this.el);
+    source.connect(bus);
+    this.key = null;
+  }
+
+  play(key, src) {
+    if (this.key !== key) {
+      this.key = key;
+      this.el.src = src;
+      this.el.currentTime = 0;
+    }
+    this.el.play().catch((err) => console.warn('[audio] track music playback failed:', err?.message ?? err));
+  }
+
+  stop() {
+    this.key = null;
+    this.el.pause();
+  }
 }
 
 // ---------------------------------------------------------------------------
