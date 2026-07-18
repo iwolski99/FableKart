@@ -349,8 +349,9 @@ export class Screens {
         ${sliderRow('Music', 'music', volumes.music)}
         ${sliderRow('SFX', 'sfx', volumes.sfx)}
         ${sliderRow('Vocals', 'vocals', volumes.vocals)}
+        ${sliderRow('Engine', 'engine', volumes.engine)}
         <div class="vol-row">
-          <label>Engine</label>
+          <label>Type</label>
           <div class="segmented" data-group="engine">
             <button class="seg-btn ${engineMode === 'sample' ? 'active' : ''}" data-value="sample">Realistic</button>
             <button class="seg-btn ${engineMode === 'synth' ? 'active' : ''}" data-value="synth">Synth</button>

@@ -53,7 +53,8 @@ path on the minimap is a dirt shortcut. Boost pads and a rolling start boost
   homing rocket, dropped mine, invincibility star, lightning bolt (shrinks
   everyone ahead) and a bubble shield that eats one hit.
 - **AI with rubber-banding** so races stay close, plus per-driver skill,
-  racing-line apexing, drifting and shortcut usage.
+  racing-line apexing, drifting and shortcut usage. Skill scales with a
+  4-tier difficulty setting (Easy through Expert) in Settings.
 - **Audio**: generated clips for the engine loop, drift screech, boost,
   rocket fire, mine drop, explosion, lightning bolt, shield bubble,
   countdown/lap dings and spoken "3, 2, 1, GO!" (`public/audio/sfx/`) — the
@@ -65,8 +66,9 @@ path on the minimap is a dirt shortcut. Boost pads and a rolling start boost
   streamed and natively looped so it doesn't matter how long a race runs.
   Menu and results screens keep a fully generative chiptune sequencer.
 - **Settings menu** (`Esc` at the title screen, or Settings from the pause
-  menu mid-race): independent Music / SFX / Vocals volume sliders, persisted
-  to localStorage.
+  menu mid-race): independent Music / SFX / Vocals / Engine volume sliders,
+  a Realistic/Synth engine sound toggle, and an Easy/Normal/Hard/Expert CPU
+  skill setting — all persisted to localStorage.
 - **Rendering**: dynamic shadows, per-theme sky shader (sun, stars, night),
   fog, canvas-painted PBR-ish textures, GPU point-sprite particles (drift
   sparks, boost flames, explosions, geysers), chase camera with FOV kick and

@@ -226,7 +226,7 @@ export class Kart {
         this.driftDir = Math.sign(steer);
         this.driftCharge = 0;
         this.driftTier = 0;
-        this.vy = 4.6; // hop
+        this.vy = 2.5; // hop
         this.pos.y += 0.06;
         this.grounded = false;
         this.emit('driftStart');
@@ -235,7 +235,7 @@ export class Kart {
 
     if (this.driftActive) {
       const into = steer * this.driftDir; // 1 = tight, -1 = shallow
-      const turn = this.driftDir * steerEff * (1.05 + 0.62 * into);
+      const turn = this.driftDir * steerEff * (0.8 + 0.4 * into);
       this.heading += turn * dt;
       if (this.grounded) {
         this.driftCharge += dt * (1.05 + 0.85 * Math.abs(steer));
@@ -261,7 +261,7 @@ export class Kart {
 
     // velocity direction lags heading → slide
     const gripRate = this.driftActive ? 3.1 : (this.grounded ? 8.5 : 1.4);
-    const targetVelDir = this.driftActive ? this.heading - this.driftDir * 0.33 : this.heading;
+    const targetVelDir = this.driftActive ? this.heading - this.driftDir * 0.24 : this.heading;
     this.velDir += wrapAngle(targetVelDir - this.velDir) * dampFactor(gripRate, dt);
     this.velDir = wrapAngle(this.velDir);
 
@@ -370,7 +370,7 @@ export class Kart {
       this._spinYaw = (1.15 - this.spinTimer) / 1.15 * TWO_PI * 2;
     } else this._spinYaw = 0;
 
-    const driftYaw = this.driftActive ? this.driftDir * 0.32 : 0;
+    const driftYaw = this.driftActive ? this.driftDir * 0.14 : 0;
     v.group.rotation.y = this.heading + this._spinYaw + driftYaw;
 
     // slope pitch from track tangent
@@ -380,7 +380,7 @@ export class Kart {
     v.body.rotation.x = this._slopePitch;
 
     // lean/roll
-    const targetLean = (this.driftActive ? this.driftDir * 0.24 : 0) + this.control.steer * 0.07 * clamp(this.speed / 20, 0, 1);
+    const targetLean = (this.driftActive ? this.driftDir * 0.16 : 0) + this.control.steer * 0.07 * clamp(this.speed / 20, 0, 1);
     this._lean = lerp(this._lean, targetLean, dampFactor(7, dt));
     v.body.rotation.z = -this._lean;
 

@@ -27,7 +27,9 @@ function loadEngineMode() {
 const VOL_KEY = 'fablekart_volumes';
 // Real recorded music tends to sit much louder than short synthesized SFX,
 // so music defaults a notch below SFX/vocals until the player rebalances it.
-const DEFAULT_VOLUMES = { music: 0.45, sfx: 0.8, vocals: 0.8 };
+// Engine is its own bus (not folded into sfx) since it drones continuously
+// rather than firing as brief transients, and needs independent control.
+const DEFAULT_VOLUMES = { music: 0.45, sfx: 0.8, vocals: 0.8, engine: 0.55 };
 function loadVolumes() {
   try {
     const raw = localStorage.getItem(VOL_KEY);
@@ -37,6 +39,7 @@ function loadVolumes() {
       music: clamp(p.music ?? DEFAULT_VOLUMES.music, 0, 1),
       sfx: clamp(p.sfx ?? DEFAULT_VOLUMES.sfx, 0, 1),
       vocals: clamp(p.vocals ?? DEFAULT_VOLUMES.vocals, 0, 1),
+      engine: clamp(p.engine ?? DEFAULT_VOLUMES.engine, 0, 1),
     };
   } catch {
     return { ...DEFAULT_VOLUMES };
@@ -72,6 +75,7 @@ class AudioManager {
     this.music = null;
     this.trackMusic = null;
     this.vocalBus = null;
+    this.engineBus = null;
     this._noiseBuf = null;
     this.samples = {};
     this.volumes = loadVolumes();
@@ -108,18 +112,23 @@ class AudioManager {
     this.vocalBus.gain.value = this.volumes.vocals;
     this.vocalBus.connect(this.master);
 
+    this.engineBus = this.ctx.createGain();
+    this.engineBus.gain.value = this.volumes.engine;
+    this.engineBus.connect(this.master);
+
     this._noiseBuf = this._makeNoiseBuffer();
     this.music = new Music(this.ctx, this.musicBus);
     this.trackMusic = new TrackMusic(this.ctx, this.musicBus);
     this._loadSamples();
   }
 
-  /** kind: 'music' | 'sfx' | 'vocals', value: 0..1. Persists to localStorage. */
+  /** kind: 'music' | 'sfx' | 'vocals' | 'engine', value: 0..1. Persists to localStorage. */
   setVolume(kind, value) {
     const v = clamp(value, 0, 1);
     this.volumes[kind] = v;
     if (this.ctx) {
-      const bus = kind === 'music' ? this.musicBus : kind === 'vocals' ? this.vocalBus : this.sfxBus;
+      const buses = { music: this.musicBus, vocals: this.vocalBus, engine: this.engineBus, sfx: this.sfxBus };
+      const bus = buses[kind] ?? this.sfxBus;
       bus?.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
     }
     try { localStorage.setItem(VOL_KEY, JSON.stringify(this.volumes)); } catch { /* storage unavailable */ }
@@ -344,7 +353,7 @@ class AudioManager {
     const levelGain = this.ctx.createGain();
     levelGain.gain.setValueAtTime(0, t0);
     levelGain.gain.linearRampToValueAtTime(0.045, t0 + 0.4);
-    levelGain.connect(this.sfxBus);
+    levelGain.connect(this.engineBus);
 
     // synthesized variant — deep low-RPM growl, not a high-pitched toy whine
     const oscA = this.ctx.createOscillator();
