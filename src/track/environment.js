@@ -2,7 +2,7 @@
 // lights, displaced terrain that hugs the road, and instanced scenery.
 import * as THREE from 'three';
 import { makeRng, clamp } from '../core/rng.js';
-import { makeGrassTexture, makeWindowsTexture, makeLavaTexture } from '../render/textures.js';
+import { makeGrassTexture, makeWindowsTexture, makeLavaTexture, makeParticleTexture } from '../render/textures.js';
 
 const SKY_VERT = /* glsl */`
   varying vec3 vDir;
@@ -202,10 +202,10 @@ export function buildEnvironment(scene, track, quality = 1) {
       trunkT.push(m); leafT.push(m);
     });
     instanced(new THREE.CylinderGeometry(0.32, 0.45, 2.6, 6).translate(0, 1.3, 0),
-      new THREE.MeshStandardMaterial({ color: 0x7a5230, roughness: 1 }), trunkT);
+      new THREE.MeshLambertMaterial({ color: 0x7a5230 }), trunkT);
     const leafGeo = new THREE.ConeGeometry(2.1, 3.4, 7).translate(0, 3.6, 0);
     const leafGeo2 = new THREE.ConeGeometry(1.5, 2.6, 7).translate(0, 5.4, 0);
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x2e8b45, roughness: 1 });
+    const leafMat = new THREE.MeshLambertMaterial({ color: 0x2e8b45 });
     instanced(leafGeo, leafMat, leafT);
     instanced(leafGeo2, leafMat.clone(), leafT);
 
@@ -214,7 +214,7 @@ export function buildEnvironment(scene, track, quality = 1) {
     scatter(180, 4, 60, (x, y, z) => {
       flowerT.push(compose(x, y + 0.25, z, rng() * 6.28, rng.range(0.7, 1.2)));
     });
-    const flowerMat = new THREE.MeshStandardMaterial({ roughness: 0.9 });
+    const flowerMat = new THREE.MeshLambertMaterial();
     const flowers = instanced(new THREE.OctahedronGeometry(0.3), flowerMat, flowerT, { shadow: false });
     if (flowers) {
       const petals = [0xff5f8f, 0xffce3a, 0xffffff, 0xbf6fff];
@@ -229,7 +229,7 @@ export function buildEnvironment(scene, track, quality = 1) {
       hayT.push(compose(x, y + 0.7, z, rng() * 6.28, rng.range(0.9, 1.2)));
     });
     instanced(new THREE.CylinderGeometry(0.8, 0.8, 1.3, 10).rotateZ(Math.PI / 2),
-      new THREE.MeshStandardMaterial({ color: 0xd8b545, roughness: 1 }), hayT);
+      new THREE.MeshLambertMaterial({ color: 0xd8b545 }), hayT);
 
     // clouds
     const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, fog: false });
@@ -265,19 +265,18 @@ export function buildEnvironment(scene, track, quality = 1) {
       rockT.push(compose(x, y, z, rng() * 6.28, rng.range(0.7, 2.6)));
     });
     instanced(new THREE.ConeGeometry(1.6, 4.5, 5).translate(0, 2.2, 0),
-      new THREE.MeshStandardMaterial({ color: 0x4a3c40, roughness: 1, flatShading: true }), rockT);
+      new THREE.MeshLambertMaterial({ color: 0x4a3c40, flatShading: true }), rockT);
     const boulderT = [];
     scatter(70, 6, 200, (x, y, z) => {
       boulderT.push(compose(x, y + 0.4, z, rng() * 6.28, rng.range(0.5, 1.8)));
     });
     instanced(new THREE.IcosahedronGeometry(0.9, 0),
-      new THREE.MeshStandardMaterial({ color: 0x37292d, roughness: 1, flatShading: true }), boulderT);
+      new THREE.MeshLambertMaterial({ color: 0x37292d, flatShading: true }), boulderT);
 
     // glowing lava pools
     const lavaTex = makeLavaTexture();
-    const lavaMat = new THREE.MeshStandardMaterial({
+    const lavaMat = new THREE.MeshLambertMaterial({
       map: lavaTex, emissive: 0xff6a1a, emissiveMap: lavaTex, emissiveIntensity: 1.35,
-      roughness: 0.7,
     });
     const poolGeo = new THREE.CircleGeometry(1, 22);
     poolGeo.rotateX(-Math.PI / 2);
@@ -303,9 +302,9 @@ export function buildEnvironment(scene, track, quality = 1) {
     const mats = [9, 23, 51].map((seed) => {
       const tx = makeWindowsTexture(seed);
       reg(tx);
-      return new THREE.MeshStandardMaterial({
+      return new THREE.MeshLambertMaterial({
         color: 0x2c3244, map: tx, emissive: 0xffffff, emissiveMap: tx,
-        emissiveIntensity: 0.85, roughness: 0.8,
+        emissiveIntensity: 0.85,
       });
     });
     mats.forEach((m) => reg(m));
@@ -336,14 +335,14 @@ export function buildEnvironment(scene, track, quality = 1) {
       neonT.push(compose(x, y + rng.range(1.5, 4), z, rng() * 6.28, 1));
     });
     const neonGeo = new THREE.BoxGeometry(2.6, 0.9, 0.25);
-    const neonMat = new THREE.MeshStandardMaterial({ emissive: 0xffffff, emissiveIntensity: 1.8, color: 0x111111 });
+    const neonMat = new THREE.MeshLambertMaterial({ emissive: 0xffffff, emissiveIntensity: 1.8, color: 0x111111 });
     const neon = instanced(neonGeo, neonMat, neonT, { shadow: false });
     if (neon) {
       neonT.forEach((_, i) => neon.setColorAt(i, new THREE.Color(neonColors[i % neonColors.length])));
     }
 
     // street lamps along the road
-    const poleT = [], bulbT = [];
+    const poleT = [], bulbT = [], poolT = [], lampPos = [];
     for (let i = 0; i < track.n; i += 16) {
       const f = track.samples[i];
       const side = (i / 16) % 2 === 0 ? 1 : -1;
@@ -352,23 +351,52 @@ export function buildEnvironment(scene, track, quality = 1) {
       const m = compose(x, f.pos.y, z, 0, 1);
       poleT.push(m);
       bulbT.push(new THREE.Matrix4().setPosition(x, f.pos.y + 4.3, z));
+      poolT.push(new THREE.Matrix4()
+        .makeScale(11, 1, 11).setPosition(x, f.pos.y + 0.07, z));
+      lampPos.push(new THREE.Vector3(x, f.pos.y, z));
     }
     instanced(new THREE.CylinderGeometry(0.12, 0.16, 4.3, 6).translate(0, 2.15, 0),
-      new THREE.MeshStandardMaterial({ color: 0x39415a, roughness: 0.6 }), poleT);
+      new THREE.MeshLambertMaterial({ color: 0x39415a }), poleT);
     instanced(new THREE.SphereGeometry(0.38, 10, 8),
-      new THREE.MeshStandardMaterial({ emissive: 0xbfd8ff, emissiveIntensity: 2.4, color: 0x111111 }),
+      new THREE.MeshLambertMaterial({ emissive: 0xbfd8ff, emissiveIntensity: 2.4, color: 0x111111 }),
       bulbT, { shadow: false });
 
-    // A sparse subset of the lamps get an actual (non-shadow-casting, short
-    // range) point light so they visibly light the road/curb beneath them —
-    // every lamp would be a lot of extra per-fragment lighting cost for
-    // limited visible gain, so only light every third one.
-    bulbT.forEach((m, i) => {
-      if (i % 3 !== 0) return;
-      const pos = new THREE.Vector3().setFromMatrixPosition(m);
-      const lamp = new THREE.PointLight(0xbfd8ff, 3.2, 13, 2);
-      lamp.position.copy(pos);
-      group.add(lamp);
+    // Every lamp gets an additive "light pool" decal on the ground — the lit
+    // patch of road you'd expect under a street light, at zero real-lighting
+    // cost. Real point lights here are ruinous: the forward renderer
+    // evaluates every light in the scene for every lit fragment, so dozens
+    // of static lamps multiply shading cost across the whole track.
+    const poolTex = makeParticleTexture();
+    reg(poolTex);
+    const poolGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    const poolMat = new THREE.MeshBasicMaterial({
+      map: poolTex, color: 0x5a7db8, transparent: true, opacity: 0.55,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    instanced(poolGeo, poolMat, poolT, { shadow: false });
+
+    // ... plus a tiny pool of REAL lights that follow whichever lamps are
+    // currently nearest the camera/player, so nearby karts and curbs still
+    // pick up genuine dynamic light. Intensity fades with distance, so by
+    // the time a light gets reassigned to another lamp it is already dark —
+    // no visible popping.
+    const liveLamps = [];
+    for (let i = 0; i < 3; i++) {
+      const l = new THREE.PointLight(0xbfd8ff, 0, 13, 2);
+      group.add(l);
+      liveLamps.push(l);
+    }
+    animated.push((dt, focus) => {
+      if (!focus) return;
+      const ranked = lampPos
+        .map((p, i) => ({ i, d: (p.x - focus.x) ** 2 + (p.z - focus.z) ** 2 }))
+        .sort((a, b) => a.d - b.d);
+      for (let k = 0; k < liveLamps.length; k++) {
+        const { i, d } = ranked[k];
+        const p = lampPos[i];
+        liveLamps[k].position.set(p.x, p.y + 4.1, p.z);
+        liveLamps[k].intensity = 3.2 * clamp(1 - (Math.sqrt(d) - 16) / 26, 0, 1);
+      }
     });
 
     mountains(0x141a33, 0x0d1128);
@@ -376,8 +404,8 @@ export function buildEnvironment(scene, track, quality = 1) {
 
   function mountains(colA, colB, glowTips = false) {
     const mats = [
-      new THREE.MeshStandardMaterial({ color: colA, roughness: 1, flatShading: true }),
-      new THREE.MeshStandardMaterial({ color: colB, roughness: 1, flatShading: true }),
+      new THREE.MeshLambertMaterial({ color: colA, flatShading: true }),
+      new THREE.MeshLambertMaterial({ color: colB, flatShading: true }),
     ];
     const geo = new THREE.ConeGeometry(1, 1, 7);
     reg(geo, ...mats);
@@ -393,7 +421,7 @@ export function buildEnvironment(scene, track, quality = 1) {
       if (glowTips && i % 3 === 0) {
         const tip = new THREE.Mesh(
           new THREE.ConeGeometry(0.13, 0.2, 7),
-          new THREE.MeshStandardMaterial({ emissive: 0xff5a1a, emissiveIntensity: 2.2, color: 0x220a04 }));
+          new THREE.MeshLambertMaterial({ emissive: 0xff5a1a, emissiveIntensity: 2.2, color: 0x220a04 }));
         tip.scale.copy(m.scale);
         tip.position.copy(m.position).add(new THREE.Vector3(0, h * 0.48, 0));
         group.add(tip);
@@ -407,7 +435,9 @@ export function buildEnvironment(scene, track, quality = 1) {
     group,
     sunDir: sd,
     sun,
-    update(dt) { for (const fn of animated) fn(dt); },
+    // focus (optional Vector3): where the action is — used to decide which
+    // lamps get the real dynamic lights on the night track.
+    update(dt, focus) { for (const fn of animated) fn(dt, focus); },
     dispose() {
       scene.remove(group);
       scene.fog = null;

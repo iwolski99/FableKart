@@ -27,11 +27,20 @@ import { Screens } from '../ui/screens.js';
 
 export class Game {
   constructor() {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    // Capped lower than before (was 2) — this is the single biggest lever on
-    // fragment-shading cost (every pixel, every light, every material) and
-    // the game was dropping frames even on the idle menu backdrop.
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    // antialias: false — the scene renders into the EffectComposer's render
+    // target, which has no MSAA; canvas multisampling would only apply to the
+    // final fullscreen blit, so it's pure memory/bandwidth cost with no
+    // visible effect. Edge quality comes from the pixel-ratio supersampling.
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+    // Adaptive resolution: start at a 1.5 pixel-ratio cap and let the frame
+    // governor in _loop() step it down (never below native 1.0) only if this
+    // machine demonstrably can't hold 60fps — so capable hardware keeps full
+    // quality and weak hardware gets smoothness instead of lag.
+    this.pixelCaps = [1.5, 1.35, 1.2, 1.1, 1.0];
+    this.pixelCapIdx = 0;
+    this.perf = { slow: 0, total: 0, grace: 2, cleanWindows: 0, failedIdx: -1, failedAt: 0 };
+    this._lastFrameT = 0;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.pixelCaps[0]));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     // PCFShadowMap instead of PCFSoftShadowMap — meaningfully cheaper per
@@ -163,6 +172,7 @@ export class Game {
     scene.add(trackMeshes.group);
     this.bundle = { scene, env, trackMeshes, track, karts: [] };
     this.renderPass.scene = scene;
+    this.perf.grace = 2; // fresh scene = shader compile spikes; not a perf signal
     // Nothing here ever moves except the orbiting camera, and shadow maps
     // are computed from the light's perspective (camera-independent) — so
     // the shadow pass can render once and be reused every frame instead of
@@ -187,6 +197,7 @@ export class Game {
     scene.add(trackMeshes.group);
     this.renderPass.scene = scene;
     env.sun.shadow.autoUpdate = true; // karts move during a race, shadows must follow
+    this.perf.grace = 2; // fresh scene = shader compile spikes; not a perf signal
 
     const particles = new Particles(scene);
     const itemSystem = new ItemSystem(scene, track, particles);
@@ -324,10 +335,53 @@ export class Game {
   _onResize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
+    this._applyPixelCap();
+  }
+
+  _applyPixelCap() {
+    const pr = Math.min(window.devicePixelRatio, this.pixelCaps[this.pixelCapIdx]);
+    this.renderer.setPixelRatio(pr);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setPixelRatio(pr);
     this.composer.setSize(window.innerWidth, window.innerHeight);
-    this.bloomPass.resolution.set(
-      Math.round(window.innerWidth / 2), Math.round(window.innerHeight / 2));
+    // Pin bloom's internal mip chain to half CSS resolution regardless of the
+    // adaptive pixel ratio — its cost stays constant and its softness doesn't
+    // visibly shift when the governor steps resolution up or down.
+    this.bloomPass.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  // Frame governor: watches real frame times and steps the resolution cap
+  // down one notch when >half the frames in a window miss 60fps, back up
+  // after a long clean streak. A level that failed isn't retried for 90s so
+  // it can't oscillate. Huge deltas (tab switches) and the seconds right
+  // after a scene build (shader compilation) are ignored as noise.
+  _perfSample(rawMs) {
+    const p = this.perf;
+    if (p.grace > 0) { p.grace -= rawMs / 1000; return; }
+    if (rawMs > 250) return;
+    p.total++;
+    if (rawMs > 18.5) p.slow++;
+    if (p.total < 90) return;
+    const frac = p.slow / p.total;
+    p.slow = 0; p.total = 0;
+    if (frac > 0.5 && this.pixelCapIdx < this.pixelCaps.length - 1) {
+      p.failedIdx = this.pixelCapIdx;
+      p.failedAt = performance.now();
+      this.pixelCapIdx++;
+      p.cleanWindows = 0; p.grace = 1;
+      this._applyPixelCap();
+    } else if (frac === 0 && this.pixelCapIdx > 0) {
+      p.cleanWindows++;
+      const retryOk = this.pixelCapIdx - 1 !== p.failedIdx ||
+        performance.now() - p.failedAt > 90000;
+      if (p.cleanWindows >= 8 && retryOk) {
+        this.pixelCapIdx--;
+        p.cleanWindows = 0; p.grace = 1;
+        this._applyPixelCap();
+      }
+    } else {
+      p.cleanWindows = 0;
+    }
   }
 
   // ------------------------------------------------------------------
@@ -335,6 +389,9 @@ export class Game {
 
   _loop() {
     requestAnimationFrame(() => this._loop());
+    const now = performance.now();
+    if (this._lastFrameT) this._perfSample(now - this._lastFrameT);
+    this._lastFrameT = now;
     let dt = Math.min(this._clock.getDelta(), 1 / 20);
 
     if (this.mode === 'race' && this.race && !this.paused) {
@@ -363,7 +420,7 @@ export class Game {
         this.chase.update(dt, this.race.player, null);
         for (const k of this.bundle.karts) k.updateVisuals(dt, this.race.time);
       }
-      this.bundle.env.update(dt);
+      this.bundle.env.update(dt, this.camera.position);
       this.composer.render();
     } else if (this.bundle) {
       // menu backdrop: lazy orbit over the track
@@ -375,7 +432,7 @@ export class Game {
         58,
         c.pos.z + Math.cos(this.menuOrbitT) * 90);
       this.camera.lookAt(c.pos.x, c.pos.y, c.pos.z);
-      this.bundle.env.update(dt);
+      this.bundle.env.update(dt, this.camera.position);
       this.composer.render();
     }
 

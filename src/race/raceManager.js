@@ -293,7 +293,7 @@ export class Race {
     this._drainEvents();
     this._continuousEffects(dt);
     this.particles.update(dt);
-    this.env.update(dt);
+    this.env.update(dt, this.player.pos);
 
     // player audio
     const p = this.player;
